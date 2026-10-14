@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../services/admin_auth_service.dart';
 import '../../theme/app_spacing.dart';
 import '../../widgets/auth_layout.dart';
+import '../../widgets/birth_date_field.dart';
 import '../../widgets/captcha_field.dart';
 import '../../widgets/google_sign_in_button.dart';
 import '../../widgets/name_fields.dart';
@@ -11,7 +12,7 @@ import '../../widgets/password_strength_checklist.dart';
 import '../../widgets/phone_input.dart';
 import '../legal/legal_screen.dart';
 
-/// Admin sign-up: first and last name, email, mobile number and password. AdminGate then
+/// Admin sign-up: first and last name, date of birth (18 or older), email, mobile number and password. AdminGate then
 /// has the number verified by OTP, and the account stays a pending request
 /// until an approved admin approves it.
 class RegisterScreen extends StatefulWidget {
@@ -36,6 +37,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   var _obscurePassword = true;
   var _obscureConfirmPassword = true;
   var _agreedToTerms = false;
+  DateTime? _birthDate;
 
   /// Why Register can't create this email (it already has an IsdaSafe
   /// login): explains how to make that account an admin instead.
@@ -102,6 +104,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       firstName: _firstNameController.text.trim(),
       lastName: _lastNameController.text.trim(),
       phone: toE164Phone(_phoneController.text),
+      birthDate: _birthDate!,
     );
     if (mounted) Navigator.of(context).popUntil((route) => route.isFirst);
   }
@@ -166,6 +169,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       final response = await AdminAuthService.register(
         firstName: _firstNameController.text.trim(),
         lastName: _lastNameController.text.trim(),
+        birthDate: _birthDate!,
         email: email,
         password: _passwordController.text,
         phone: toE164Phone(_phoneController.text),
@@ -231,6 +235,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 firstName: _firstNameController,
                 lastName: _lastNameController,
                 enabled: !_isSubmitting,
+              ),
+              const SizedBox(height: AppSpacing.md),
+              BirthDateField(
+                enabled: !_isSubmitting,
+                onChanged: (date) => setState(() => _birthDate = date),
               ),
               const SizedBox(height: AppSpacing.md),
               TextFormField(

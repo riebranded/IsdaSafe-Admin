@@ -3,6 +3,8 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../widgets/birth_date_field.dart';
+
 /// Where an admin account stands, from its `public.admins` row.
 enum AdminStatus {
   approved,
@@ -36,6 +38,7 @@ class AdminProfile {
     required this.email,
     required this.phone,
     required this.phoneVerified,
+    required this.birthDate,
     required this.status,
     required this.createdAt,
   });
@@ -48,6 +51,10 @@ class AdminProfile {
     email: row['email'] as String,
     phone: row['phone'] as String?,
     phoneVerified: row['phone_verified'] as bool? ?? false,
+    birthDate: switch (row['birth_date']) {
+      final String date => DateTime.parse(date),
+      _ => null,
+    },
     status: switch (row['status']) {
       'approved' => AdminStatus.approved,
       'rejected' => AdminStatus.rejected,
@@ -73,6 +80,9 @@ class AdminProfile {
   /// `auth.users.phone`, so it may match a farmer account's number.
   final String? phone;
   final bool phoneVerified;
+
+  /// Null for admins from before it was asked at sign-up.
+  final DateTime? birthDate;
   final AdminStatus status;
   final DateTime createdAt;
 }
@@ -108,6 +118,7 @@ class AdminAuthService {
   static Future<AuthResponse> register({
     required String firstName,
     required String lastName,
+    required DateTime birthDate,
     required String email,
     required String password,
     required String phone,
@@ -121,6 +132,7 @@ class AdminAuthService {
         'first_name': firstName,
         'last_name': lastName,
         'full_name': '$firstName $lastName',
+        'birth_date': isoDate(birthDate),
         'admin_signup': true,
         'admin_phone': phone,
       },
@@ -192,6 +204,7 @@ class AdminAuthService {
     required String firstName,
     required String lastName,
     required String phone,
+    required DateTime birthDate,
   }) async {
     final status = await _client.rpc(
       'request_admin_access',
@@ -199,6 +212,7 @@ class AdminAuthService {
         'p_first_name': firstName,
         'p_last_name': lastName,
         'p_phone': phone,
+        'p_birth_date': isoDate(birthDate),
       },
     );
     adminRequestFiled.value++;
@@ -444,6 +458,12 @@ class AdminAuthService {
         ? ''
         : profile.fullName.trim().split(RegExp(r'\s+')).first;
   }
+
+  /// Sets the signed-in admin's date of birth (refused under 18).
+  static Future<void> setOwnBirthDate(DateTime birthDate) => _client.rpc(
+    'admin_set_own_birth_date',
+    params: {'p_birth_date': isoDate(birthDate)},
+  );
 
   /// Sets the signed-in admin's first and last name (full_name follows).
   static Future<void> updateOwnName({

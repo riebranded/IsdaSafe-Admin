@@ -165,6 +165,7 @@ void main() {
       email: 'juan@example.com',
       phone: null,
       phoneVerified: true,
+      birthDate: DateTime(1990, 5, 1),
       status: AdminStatus.approved,
       createdAt: DateTime(2026),
     );

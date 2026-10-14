@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../services/admin_auth_service.dart';
 import '../../theme/app_spacing.dart';
 import '../../widgets/auth_layout.dart';
+import '../../widgets/birth_date_field.dart';
 import '../../widgets/name_fields.dart';
 import '../../widgets/new_password_fields.dart';
 import '../../widgets/phone_input.dart';
@@ -14,7 +15,8 @@ import 'phone_verification_screen.dart';
 import 'reset_password_screen.dart';
 
 /// Shows Login when signed out, the set-new-password screen during a
-/// password reset, a name step for an admin with no first/last name on file,
+/// password reset, a profile step for an admin missing a first/last name or
+/// date of birth,
 /// the OTP step until the admin's mobile number is verified,
 /// the dashboard for an approved admin, and otherwise a waiting/declined
 /// screen — or, for a signed-in account with no admin row (a first-time
@@ -95,10 +97,11 @@ class _AdminGateState extends State<AdminGate> {
             if (profile == null) {
               return _RequestAccessScreen(onRequested: _recheck);
             }
-            // Admins from before first/last names were asked give them now.
+            // Admins from before first/last names and dates of birth were
+            // asked give whatever's missing now.
             if (profile.status != AdminStatus.rejected &&
-                !profile.hasFirstAndLastName) {
-              return _NameSetupScreen(profile: profile, onSaved: _recheck);
+                (!profile.hasFirstAndLastName || profile.birthDate == null)) {
+              return _ProfileSetupScreen(profile: profile, onSaved: _recheck);
             }
             // Every admin (the very first, auto-approved one included)
             // verifies the number their OTP codes go to before anything else.
@@ -223,6 +226,7 @@ class _RequestAccessScreenState extends State<_RequestAccessScreen> {
   final _phone = TextEditingController();
   final _password = TextEditingController();
   final _needsPassword = !AdminAuthService.hasPasswordLogin;
+  DateTime? _birthDate;
   var _busy = false;
   var _agreedToTerms = false;
 
@@ -248,6 +252,7 @@ class _RequestAccessScreenState extends State<_RequestAccessScreen> {
         firstName: _firstName.text.trim(),
         lastName: _lastName.text.trim(),
         phone: toE164Phone(_phone.text),
+        birthDate: _birthDate!,
       );
       widget.onRequested();
     } on AuthException catch (e) {
@@ -316,6 +321,11 @@ class _RequestAccessScreenState extends State<_RequestAccessScreen> {
                 enabled: !_busy,
               ),
               const SizedBox(height: AppSpacing.md),
+              BirthDateField(
+                enabled: !_busy,
+                onChanged: (date) => setState(() => _birthDate = date),
+              ),
+              const SizedBox(height: AppSpacing.md),
               PhoneNumberField(
                 controller: _phone,
                 enabled: !_busy,
@@ -364,23 +374,27 @@ class _RequestAccessScreenState extends State<_RequestAccessScreen> {
   }
 }
 
-/// For an admin with no first/last name on file (one from before they were
-/// asked at sign-up): asks for both, pre-filled from their full name.
-class _NameSetupScreen extends StatefulWidget {
-  const _NameSetupScreen({required this.profile, required this.onSaved});
+/// For an admin missing a first/last name or date of birth (one from before
+/// they were asked at sign-up): asks for just what's missing. Under 18 can't
+/// continue.
+class _ProfileSetupScreen extends StatefulWidget {
+  const _ProfileSetupScreen({required this.profile, required this.onSaved});
 
   final AdminProfile profile;
   final VoidCallback onSaved;
 
   @override
-  State<_NameSetupScreen> createState() => _NameSetupScreenState();
+  State<_ProfileSetupScreen> createState() => _ProfileSetupScreenState();
 }
 
-class _NameSetupScreenState extends State<_NameSetupScreen> {
+class _ProfileSetupScreenState extends State<_ProfileSetupScreen> {
   final _formKey = GlobalKey<FormState>();
+  late final _needsName = !widget.profile.hasFirstAndLastName;
+  late final _needsBirthDate = widget.profile.birthDate == null;
   late final _guess = _initialGuess();
   late final _firstName = TextEditingController(text: _guess.first);
   late final _lastName = TextEditingController(text: _guess.last);
+  DateTime? _birthDate;
   var _busy = false;
 
   /// What's on file, else a split of the full name — unless that's just the
@@ -406,27 +420,36 @@ class _NameSetupScreenState extends State<_NameSetupScreen> {
     if (!(_formKey.currentState?.validate() ?? false)) return;
     setState(() => _busy = true);
     try {
-      await AdminAuthService.updateOwnName(
-        firstName: _firstName.text.trim(),
-        lastName: _lastName.text.trim(),
-      );
-      widget.onSaved();
-    } catch (e) {
-      debugPrint('NameSetupScreen: error $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Couldn\'t save your name. Please try again.'),
-          ),
+      if (_needsName) {
+        await AdminAuthService.updateOwnName(
+          firstName: _firstName.text.trim(),
+          lastName: _lastName.text.trim(),
         );
       }
+      if (_needsBirthDate) {
+        await AdminAuthService.setOwnBirthDate(_birthDate!);
+      }
+      widget.onSaved();
+    } on PostgrestException catch (e) {
+      if (mounted) _showError(e.message);
+    } catch (e) {
+      debugPrint('ProfileSetupScreen: error $e');
+      if (mounted) _showError('Couldn\'t save your details. Please try again.');
     } finally {
       if (mounted) setState(() => _busy = false);
     }
   }
 
+  void _showError(String message) => ScaffoldMessenger.of(
+    context,
+  ).showSnackBar(SnackBar(content: Text(message)));
+
   @override
   Widget build(BuildContext context) {
+    final asking = [
+      if (_needsName) 'your first and last name',
+      if (_needsBirthDate) 'your date of birth',
+    ].join(' and ');
     return AuthLayout(
       builder: (context, isWide) {
         final theme = Theme.of(context);
@@ -443,14 +466,14 @@ class _NameSetupScreenState extends State<_NameSetupScreen> {
               ),
               const SizedBox(height: AppSpacing.md),
               Text(
-                'What\'s your name?',
+                'Complete your profile',
                 style: theme.textTheme.headlineSmall,
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: AppSpacing.sm),
               Text(
-                'Add your first and last name. Other admins see it on the '
-                'Admins page.',
+                'Add $asking to keep using the admin panel. '
+                '${_needsBirthDate ? 'Admins must be at least 18 years old.' : 'Other admins see your name on the Admins page.'}',
                 style: theme.textTheme.bodyMedium?.copyWith(
                   color: theme.colorScheme.onSurfaceVariant,
                 ),
@@ -465,14 +488,23 @@ class _NameSetupScreenState extends State<_NameSetupScreen> {
                 ),
               ],
               const SizedBox(height: AppSpacing.lg),
-              NameFields(
-                firstName: _firstName,
-                lastName: _lastName,
-                enabled: !_busy,
-                autofocus: true,
-                onSubmitted: _submit,
-              ),
-              const SizedBox(height: AppSpacing.lg),
+              if (_needsName) ...[
+                NameFields(
+                  firstName: _firstName,
+                  lastName: _lastName,
+                  enabled: !_busy,
+                  autofocus: true,
+                ),
+                const SizedBox(height: AppSpacing.md),
+              ],
+              if (_needsBirthDate) ...[
+                BirthDateField(
+                  enabled: !_busy,
+                  onChanged: (date) => setState(() => _birthDate = date),
+                ),
+                const SizedBox(height: AppSpacing.md),
+              ],
+              const SizedBox(height: AppSpacing.sm),
               FilledButton(
                 onPressed: _busy ? null : _submit,
                 child: _busy

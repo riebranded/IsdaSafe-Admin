@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../services/admin_auth_service.dart';
 import '../theme/app_spacing.dart';
 import '../theme/app_theme.dart';
+import '../widgets/birth_date_field.dart';
 import '../widgets/status_badge.dart';
 
 /// Admin accounts and pending requests; approved admins approve or decline
@@ -99,6 +100,7 @@ class _AdminsViewState extends State<AdminsView> {
               subtitle: Text(
                 '${admin.email}'
                 '${admin.phone == null ? '' : ' · ${admin.phone}${admin.phoneVerified ? '' : ' (unverified)'}'}'
+                '${admin.birthDate == null ? '' : ' · ${ageOn(admin.birthDate!, DateTime.now())} years old'}'
                 '\nRequested '
                 '${MaterialLocalizations.of(context).formatMediumDate(admin.createdAt)}',
               ),
