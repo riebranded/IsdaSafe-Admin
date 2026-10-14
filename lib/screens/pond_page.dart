@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import '../analytics/individual_trend_chart.dart';
 import '../analytics/latest_readings.dart';
 import '../analytics/metric_detail_view.dart';
-import '../analytics/metric_range_bar.dart';
 import '../analytics/metric_type.dart';
 import '../analytics/reading_history_table.dart';
 import '../analytics/readings_pager.dart';
@@ -13,6 +12,7 @@ import '../analytics/trend_service.dart';
 import '../models/monitored_pond.dart';
 import '../theme/app_spacing.dart';
 import '../widgets/status_badge.dart';
+import 'pond_latest_readings.dart';
 
 /// Opens [pond] as a full page (from Monitoring or the Map).
 Future<void> openPond(BuildContext context, MonitoredPond pond) => Navigator.of(
@@ -116,7 +116,6 @@ class _PondPageState extends State<PondPage> {
       body: LayoutBuilder(
         builder: (context, constraints) {
           final side = (constraints.maxWidth - _maxContentWidth) / 2;
-          final wide = constraints.maxWidth >= 1000;
           return SingleChildScrollView(
             padding: EdgeInsets.fromLTRB(
               side > gutter ? side : gutter,
@@ -129,31 +128,14 @@ class _PondPageState extends State<PondPage> {
               children: [
                 _StatusBanner(pond: pond),
                 const SizedBox(height: AppSpacing.xl),
-                if (wide)
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(
-                        flex: 3,
-                        child: _LatestSection(
-                          pond: pond,
-                          latest: latest,
-                          onOpen: _openMetric,
-                        ),
-                      ),
-                      const SizedBox(width: AppSpacing.xl),
-                      Expanded(flex: 2, child: _OwnerCard(pond: pond)),
-                    ],
-                  )
-                else ...[
-                  _LatestSection(
-                    pond: pond,
-                    latest: latest,
-                    onOpen: _openMetric,
-                  ),
-                  const SizedBox(height: AppSpacing.xl),
-                  _OwnerCard(pond: pond),
-                ],
+                LatestReadingsSection(
+                  pond: pond,
+                  latest: latest,
+                  trend: _trend,
+                  onOpen: _openMetric,
+                ),
+                const SizedBox(height: AppSpacing.xxl),
+                _OwnerCard(pond: pond),
                 const SizedBox(height: AppSpacing.xxl),
                 const _SectionHeader(
                   icon: Icons.show_chart,
@@ -380,179 +362,7 @@ class _SectionHeader extends StatelessWidget {
   }
 }
 
-/// The latest value of every reading the device sent, as tappable tiles.
-class _LatestSection extends StatelessWidget {
-  const _LatestSection({
-    required this.pond,
-    required this.latest,
-    required this.onOpen,
-  });
-
-  final MonitoredPond pond;
-  final Map<MetricType, SensorReading> latest;
-  final ValueChanged<MetricType> onOpen;
-
-  static const _order = [
-    MetricType.temperature,
-    MetricType.dissolvedOxygen,
-    MetricType.ph,
-    MetricType.freeAmmonia,
-    MetricType.ammonia,
-    MetricType.humidity,
-    MetricType.airTemperature,
-  ];
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final shown = [for (final type in _order) ?latest[type]];
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        _SectionHeader(
-          icon: Icons.sensors,
-          title: 'Latest readings',
-          subtitle: pond.readingAt == null
-              ? null
-              : 'Read ${_relative(pond.readingAt!)} · tap one for details',
-        ),
-        const SizedBox(height: AppSpacing.md),
-        if (shown.isEmpty)
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(AppSpacing.xl),
-              child: Text(
-                'This device hasn\'t sent any readings yet.',
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
-              ),
-            ),
-          )
-        else
-          LayoutBuilder(
-            builder: (context, constraints) {
-              final perRow = constraints.maxWidth >= 640
-                  ? 3
-                  : constraints.maxWidth >= 360
-                  ? 2
-                  : 1;
-              final tileWidth =
-                  (constraints.maxWidth - AppSpacing.md * (perRow - 1)) /
-                  perRow;
-              return Wrap(
-                spacing: AppSpacing.md,
-                runSpacing: AppSpacing.md,
-                children: [
-                  for (final reading in shown)
-                    SizedBox(
-                      width: tileWidth,
-                      child: _LatestTile(
-                        reading: reading,
-                        onTap: () => onOpen(reading.type),
-                      ),
-                    ),
-                ],
-              );
-            },
-          ),
-      ],
-    );
-  }
-}
-
-/// One reading: value, status (water readings only, as in the farmer app)
-/// and where it sits in the healthy range.
-class _LatestTile extends StatelessWidget {
-  const _LatestTile({required this.reading, required this.onTap});
-
-  final SensorReading reading;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-    final type = reading.type;
-    final judged = MetricType.water.contains(type);
-    final status = metricBands[type]!.statusFor(reading.value);
-    final flagged = judged && status != ReadingStatus.normal;
-    final color = judged ? status.colorOf(context) : metricColor(context, type);
-
-    return Card(
-      color: flagged ? color.withValues(alpha: 0.08) : null,
-      child: InkWell(
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.all(AppSpacing.md),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Icon(type.icon, size: 18, color: metricColor(context, type)),
-                  const SizedBox(width: AppSpacing.xs),
-                  Expanded(
-                    child: Text(
-                      type.label,
-                      style: theme.textTheme.labelMedium?.copyWith(
-                        color: scheme.onSurfaceVariant,
-                      ),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                  Icon(
-                    Icons.chevron_right,
-                    size: 18,
-                    color: scheme.onSurfaceVariant,
-                  ),
-                ],
-              ),
-              const SizedBox(height: AppSpacing.xs),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Flexible(
-                    child: FittedBox(
-                      fit: BoxFit.scaleDown,
-                      alignment: Alignment.centerLeft,
-                      child: Text(
-                        type.format(reading.value),
-                        style: theme.textTheme.headlineSmall?.copyWith(
-                          fontWeight: FontWeight.w700,
-                          color: flagged ? color : null,
-                          fontFeatures: const [FontFeature.tabularFigures()],
-                        ),
-                      ),
-                    ),
-                  ),
-                  if (judged) ...[
-                    const SizedBox(width: AppSpacing.sm),
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 4),
-                      child: StatusPill.status(status, context),
-                    ),
-                  ],
-                ],
-              ),
-              const SizedBox(height: AppSpacing.sm),
-              MetricRangeBar(type: type, value: reading.value),
-              const SizedBox(height: AppSpacing.xs),
-              Text(
-                'Healthy: ${healthyRangeLabel(type)}',
-                style: theme.textTheme.labelSmall?.copyWith(
-                  color: scheme.onSurfaceVariant,
-                ),
-                overflow: TextOverflow.ellipsis,
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
+/// The owner and the device, as two cards side by side on wide screens.
 class _OwnerCard extends StatelessWidget {
   const _OwnerCard({required this.pond});
 
@@ -560,64 +370,131 @@ class _OwnerCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    Widget row(IconData icon, String label, String? value) => ListTile(
-      dense: true,
-      leading: Icon(icon),
-      title: Text(label),
-      subtitle: SelectableText(
-        (value == null || value.isEmpty) ? '—' : value,
-        style: theme.textTheme.bodyMedium,
-      ),
+    final owner = _FactsCard(
+      title: 'Owner',
+      icon: Icons.person_outline,
+      facts: [
+        (Icons.badge_outlined, 'Name', pond.ownerName),
+        (Icons.email_outlined, 'Email', pond.ownerEmail),
+        (Icons.phone_outlined, 'Phone', pond.ownerPhone),
+      ],
+    );
+    final device = _FactsCard(
+      title: 'Pond & device',
+      icon: Icons.memory,
+      facts: [
+        (Icons.memory, 'Device ID', pond.deviceId),
+        (
+          Icons.link,
+          'Paired',
+          pond.pairedAt == null ? null : _date(context, pond.pairedAt!),
+        ),
+        (
+          Icons.schedule,
+          'Last seen',
+          pond.lastSeenAt == null ? null : _relative(pond.lastSeenAt!),
+        ),
+        (
+          Icons.place_outlined,
+          'Location',
+          (pond.latitude == null || pond.longitude == null)
+              ? null
+              : '${pond.latitude!.toStringAsFixed(5)}, '
+                    '${pond.longitude!.toStringAsFixed(5)}',
+        ),
+        (Icons.set_meal_outlined, 'Species', pond.speciesNames.join(', ')),
+      ],
     );
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const _SectionHeader(
-          icon: Icons.person_outline,
-          title: 'Owner & device',
-        ),
+        const _SectionHeader(icon: Icons.info_outline, title: 'Owner & device'),
         const SizedBox(height: AppSpacing.md),
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                row(Icons.person_outline, 'Owner', pond.ownerName),
-                row(Icons.email_outlined, 'Email', pond.ownerEmail),
-                row(Icons.phone_outlined, 'Phone', pond.ownerPhone),
-                const Divider(height: AppSpacing.lg),
-                row(Icons.memory, 'Device ID', pond.deviceId),
-                row(
-                  Icons.link,
-                  'Paired',
-                  pond.pairedAt == null ? null : _date(context, pond.pairedAt!),
-                ),
-                row(
-                  Icons.schedule,
-                  'Last seen',
-                  pond.lastSeenAt == null ? null : _relative(pond.lastSeenAt!),
-                ),
-                row(
-                  Icons.place_outlined,
-                  'Location',
-                  (pond.latitude == null || pond.longitude == null)
-                      ? null
-                      : '${pond.latitude!.toStringAsFixed(5)}, '
-                            '${pond.longitude!.toStringAsFixed(5)}',
-                ),
-                row(
-                  Icons.set_meal_outlined,
-                  'Species',
-                  pond.speciesNames.join(', '),
-                ),
-              ],
-            ),
-          ),
+        LayoutBuilder(
+          builder: (context, constraints) {
+            if (constraints.maxWidth < 760) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  owner,
+                  const SizedBox(height: AppSpacing.md),
+                  device,
+                ],
+              );
+            }
+            return IntrinsicHeight(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Expanded(child: owner),
+                  const SizedBox(width: AppSpacing.md),
+                  Expanded(child: device),
+                ],
+              ),
+            );
+          },
         ),
       ],
+    );
+  }
+}
+
+class _FactsCard extends StatelessWidget {
+  const _FactsCard({
+    required this.title,
+    required this.icon,
+    required this.facts,
+  });
+
+  final String title;
+  final IconData icon;
+  final List<(IconData, String, String?)> facts;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final muted = theme.colorScheme.onSurfaceVariant;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpacing.lg),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              title.toUpperCase(),
+              style: theme.textTheme.labelMedium?.copyWith(
+                color: theme.colorScheme.primary,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 1,
+              ),
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            for (final (i, (factIcon, label, value)) in facts.indexed) ...[
+              if (i > 0) const Divider(height: AppSpacing.lg),
+              Row(
+                children: [
+                  Icon(factIcon, size: 20, color: muted),
+                  const SizedBox(width: AppSpacing.md),
+                  SizedBox(
+                    width: 88,
+                    child: Text(
+                      label,
+                      style: theme.textTheme.bodySmall?.copyWith(color: muted),
+                    ),
+                  ),
+                  Expanded(
+                    child: SelectableText(
+                      (value == null || value.isEmpty) ? '—' : value,
+                      style: theme.textTheme.bodyMedium,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ],
+        ),
+      ),
     );
   }
 }
