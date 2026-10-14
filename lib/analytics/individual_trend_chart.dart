@@ -1,0 +1,706 @@
+import 'package:flutter/material.dart';
+
+import '../models/monitored_pond.dart';
+import '../theme/app_spacing.dart';
+import '../widgets/status_badge.dart';
+import 'fill.dart';
+import 'metric_type.dart';
+import 'trend_range.dart';
+
+/// Ported from the farmer app (IsdaSafeV2 `widgets/individual_trend_chart.dart`).
+///
+/// One metric as a card: on the left its name, latest value, status, healthy
+/// range and when it was last updated; on the right its trend on its own
+/// real-value scale. Hover or tap/drag the chart to read the value at a point.
+/// On narrow screens the chart drops below the details.
+class IndividualTrendChart extends StatelessWidget {
+  const IndividualTrendChart({
+    super.key,
+    required this.type,
+    required this.history,
+    this.range = TrendRange.hourly,
+    this.timeFormat,
+    this.tooltipTimeFormat,
+    this.band,
+    this.latest,
+    this.emptyMessage,
+    this.showDetails = true,
+    this.onTap,
+  });
+
+  /// The name / current value / healthy range pane beside the chart. Off
+  /// where the page already shows them (a metric's detail view).
+  final bool showDetails;
+
+  /// Makes the card tappable (e.g. to open a detailed view). The chart's own
+  /// tap/drag scrubbing still takes precedence over it.
+  final VoidCallback? onTap;
+
+  final MetricType type;
+  final List<SensorReading> history;
+
+  /// Overrides [range]'s x-axis labels, for a custom timeframe.
+  final String Function(DateTime)? timeFormat;
+
+  /// The tooltip's time, e.g. the whole step ("Mon, Oct 12"); defaults to
+  /// [timeFormat].
+  final String Function(DateTime)? tooltipTimeFormat;
+
+  /// Per point of [history], the lowest and highest reading it stands for
+  /// (when each point is a step's average): drawn as a shaded band.
+  final List<({double min, double max})>? band;
+
+  /// The value shown beside the chart; defaults to the last point.
+  final SensorReading? latest;
+
+  /// Shown instead of the chart when [history] is empty.
+  final String? emptyMessage;
+
+  /// Drives the bottom axis's labels when there's no [timeFormat].
+  final TrendRange range;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final color = metricColor(context, type);
+    if (history.isEmpty) {
+      return Card(
+        margin: EdgeInsets.zero,
+        child: ListTile(
+          leading: Icon(type.icon, color: color),
+          title: Text(type.label),
+          subtitle: Text(emptyMessage ?? 'No readings in this timeframe'),
+        ),
+      );
+    }
+    final latest = this.latest ?? history.last;
+    final status = metricBands[type]!.statusFor(latest.value);
+
+    final detailsContent = _Details(
+      type: type,
+      latest: latest,
+      status: status,
+      color: color,
+      showChevron: onTap != null,
+    );
+    final details = onTap == null
+        ? detailsContent
+        : InkWell(onTap: onTap, child: detailsContent);
+    final axisFormat = timeFormat ?? range.formatTimestamp;
+    final chart = _Chart(
+      type: type,
+      history: history,
+      band: band,
+      timeFormat: axisFormat,
+      tooltipTimeFormat: tooltipTimeFormat ?? axisFormat,
+      color: color,
+    );
+
+    if (!showDetails) {
+      return Card(
+        margin: EdgeInsets.zero,
+        clipBehavior: Clip.antiAlias,
+        child: SizedBox(height: 220, child: chart),
+      );
+    }
+    return Card(
+      margin: EdgeInsets.zero,
+      clipBehavior: Clip.antiAlias,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          if (constraints.maxWidth >= 560) {
+            return IntrinsicHeight(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  SizedBox(width: 230, child: details),
+                  VerticalDivider(width: 1, color: scheme.outlineVariant),
+                  Expanded(child: SizedBox(height: 200, child: chart)),
+                ],
+              ),
+            );
+          }
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              details,
+              Divider(height: 1, color: scheme.outlineVariant),
+              SizedBox(height: 200, child: chart),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+/// The healthy band, from the warning thresholds (the range outside which a
+/// reading stops being "normal").
+String healthyRangeLabel(MetricType type) {
+  final bands = metricBands[type]!;
+  final lo = bands.warningLow, hi = bands.warningHigh;
+  final unit = type.unit.isEmpty ? '' : ' ${type.unit}';
+  if (lo != null && hi != null) {
+    return '${type.formatValue(lo)} – ${type.formatValue(hi)}$unit';
+  }
+  if (hi != null) return 'Up to {0}{1}'.fill([type.formatValue(hi), unit]);
+  if (lo != null) return 'At least {0}{1}'.fill([type.formatValue(lo), unit]);
+  return '—';
+}
+
+class _Details extends StatelessWidget {
+  const _Details({
+    required this.type,
+    required this.latest,
+    required this.status,
+    required this.color,
+    required this.showChevron,
+  });
+
+  final MetricType type;
+  final SensorReading latest;
+  final ReadingStatus status;
+  final Color color;
+  final bool showChevron;
+
+  String _healthyRange() => healthyRangeLabel(type);
+
+  String _lastUpdated() {
+    final diff = DateTime.now().difference(latest.timestamp);
+    if (diff.inMinutes < 1) return 'Just now';
+    if (diff.inMinutes < 60) return '{0} min ago'.fill([diff.inMinutes]);
+    if (diff.inHours < 24) return '{0} hours ago'.fill([diff.inHours]);
+    return '{0} days ago'.fill([diff.inDays]);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final statusColor = status.colorOf(context);
+
+    return Padding(
+      padding: const EdgeInsets.all(AppSpacing.lg),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(AppRadius.sm),
+                ),
+                child: Icon(type.icon, size: 20, color: color),
+              ),
+              const SizedBox(width: AppSpacing.md),
+              Expanded(
+                child: Text(
+                  type.label,
+                  style: theme.textTheme.titleSmall,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              if (showChevron)
+                Icon(
+                  Icons.open_in_full,
+                  size: 16,
+                  color: scheme.onSurfaceVariant,
+                ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.md),
+          Text.rich(
+            TextSpan(
+              children: [
+                TextSpan(
+                  text: type.formatValue(latest.value),
+                  style: theme.textTheme.headlineMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                if (type.unit.isNotEmpty)
+                  TextSpan(
+                    text: ' ${type.unit}',
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(height: AppSpacing.xs),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.circle, size: 8, color: statusColor),
+              const SizedBox(width: AppSpacing.xs),
+              Text(
+                status.label,
+                style: theme.textTheme.labelLarge?.copyWith(color: statusColor),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.md),
+          DecoratedBox(
+            decoration: BoxDecoration(
+              color: scheme.surfaceContainerHighest.withValues(alpha: 0.5),
+              borderRadius: BorderRadius.circular(AppRadius.sm),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.md,
+                vertical: AppSpacing.sm,
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Healthy range',
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(_healthyRange(), style: theme.textTheme.labelLarge),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.md),
+          Row(
+            children: [
+              Icon(Icons.circle, size: 6, color: scheme.primary),
+              const SizedBox(width: AppSpacing.xs),
+              Expanded(
+                child: Text(
+                  'Last updated: {0}'.fill([_lastUpdated()]),
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _Chart extends StatefulWidget {
+  const _Chart({
+    required this.type,
+    required this.history,
+    required this.band,
+    required this.timeFormat,
+    required this.tooltipTimeFormat,
+    required this.color,
+  });
+
+  final MetricType type;
+  final List<SensorReading> history;
+  final List<({double min, double max})>? band;
+  final String Function(DateTime) timeFormat;
+  final String Function(DateTime) tooltipTimeFormat;
+  final Color color;
+
+  @override
+  State<_Chart> createState() => _ChartState();
+}
+
+class _ChartState extends State<_Chart> {
+  int? _selectedIndex;
+
+  void _selectAt(double localX, double width, double leftMargin) {
+    final history = widget.history;
+    if (history.length < 2) return;
+    final plotWidth = width - leftMargin - _TrendPainter.rightInset;
+    final fraction = ((localX - leftMargin) / plotWidth).clamp(0.0, 1.0);
+    // Points sit at their time, so pick the one nearest the pointer's time.
+    final first = history.first.timestamp.millisecondsSinceEpoch;
+    final last = history.last.timestamp.millisecondsSinceEpoch;
+    final target = first + (last - first) * fraction;
+    var index = 0;
+    for (var i = 1; i < history.length; i++) {
+      final d = (history[i].timestamp.millisecondsSinceEpoch - target).abs();
+      final best = (history[index].timestamp.millisecondsSinceEpoch - target)
+          .abs();
+      if (d < best) index = i;
+    }
+    if (index != _selectedIndex) setState(() => _selectedIndex = index);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final history = widget.history;
+
+    final band = widget.band;
+    final values = [
+      for (final point in history) point.value,
+      if (band != null)
+        for (final b in band) ...[b.min, b.max],
+    ];
+    var min = values.reduce((a, b) => a < b ? a : b);
+    var max = values.reduce((a, b) => a > b ? a : b);
+    if (min == max) {
+      min -= 1;
+      max += 1;
+    }
+    // A little headroom so the line never hugs the edges.
+    final pad = (max - min) * 0.08;
+    min -= pad;
+    max += pad;
+
+    // The app's font, not the canvas default.
+    final labelStyle =
+        theme.textTheme.labelSmall?.copyWith(
+          fontSize: 10,
+          color: theme.colorScheme.onSurfaceVariant,
+        ) ??
+        TextStyle(fontSize: 10, color: theme.colorScheme.onSurfaceVariant);
+    final leftMargin = _measureLeftMargin(
+      [max, min],
+      widget.type.formatValue,
+      labelStyle,
+    );
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.md,
+        AppSpacing.md,
+        AppSpacing.md,
+        AppSpacing.sm,
+      ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          void select(Offset p) =>
+              _selectAt(p.dx, constraints.maxWidth, leftMargin);
+          return MouseRegion(
+            onHover: (e) => select(e.localPosition),
+            onExit: (_) => setState(() => _selectedIndex = null),
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTapDown: (d) => select(d.localPosition),
+              onPanStart: (d) => select(d.localPosition),
+              onPanUpdate: (d) => select(d.localPosition),
+              child: CustomPaint(
+                size: Size(constraints.maxWidth, constraints.maxHeight),
+                painter: _TrendPainter(
+                  history: history,
+                  band: band,
+                  min: min,
+                  max: max,
+                  color: widget.color,
+                  mutedColor: theme.colorScheme.onSurfaceVariant,
+                  surfaceColor: theme.colorScheme.surface,
+                  gridColor: theme.colorScheme.outlineVariant.withValues(
+                    alpha: 0.6,
+                  ),
+                  selectedIndex: _selectedIndex,
+                  valueFormat: widget.type.format,
+                  axisValueFormat: widget.type.formatValue,
+                  timeFormat: widget.timeFormat,
+                  tooltipTimeFormat: widget.tooltipTimeFormat,
+                  leftMargin: leftMargin,
+                  labelStyle: labelStyle,
+                  tooltipColor: theme.colorScheme.inverseSurface,
+                  tooltipTextColor: theme.colorScheme.onInverseSurface,
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+/// The widest of [values] (as formatted by [format]) plus a small gap —
+/// used as the chart's left margin so the y-axis labels never clip.
+double _measureLeftMargin(
+  List<double> values,
+  String Function(double) format,
+  TextStyle style,
+) {
+  var widest = 0.0;
+  for (final value in values) {
+    final painter = TextPainter(
+      text: TextSpan(text: format(value), style: style),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    if (painter.width > widest) widest = painter.width;
+  }
+  return widest + AppSpacing.md;
+}
+
+class _TrendPainter extends CustomPainter {
+  _TrendPainter({
+    required this.history,
+    required this.band,
+    required this.min,
+    required this.max,
+    required this.color,
+    required this.mutedColor,
+    required this.surfaceColor,
+    required this.gridColor,
+    required this.selectedIndex,
+    required this.valueFormat,
+    required this.axisValueFormat,
+    required this.timeFormat,
+    required this.tooltipTimeFormat,
+    required this.leftMargin,
+    required this.labelStyle,
+    required this.tooltipColor,
+    required this.tooltipTextColor,
+  });
+
+  final List<SensorReading> history;
+  final List<({double min, double max})>? band;
+  final double min;
+  final double max;
+  final Color color;
+  final Color mutedColor;
+  final Color surfaceColor;
+  final Color gridColor;
+  final int? selectedIndex;
+  final Color tooltipColor;
+  final Color tooltipTextColor;
+
+  /// Value with unit, for the tooltip.
+  final String Function(double) valueFormat;
+
+  /// Bare number, for the y-axis (the unit is already on the card).
+  final String Function(double) axisValueFormat;
+
+  /// A point's timestamp at this chart's [TrendRange] granularity.
+  final String Function(DateTime) timeFormat;
+
+  /// The selected point's time in the tooltip.
+  final String Function(DateTime) tooltipTimeFormat;
+
+  final double leftMargin;
+  final TextStyle labelStyle;
+
+  static const rightInset = 8.0;
+  static const _topInset = 8.0;
+  static const _xAxisHeight = 20.0;
+  static const _yTicks = 5;
+  static const _maxXLabels = 6;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final plotTop = _topInset;
+    final plotBottom = size.height - _xAxisHeight;
+    final plotHeight = plotBottom - plotTop;
+    final plotRight = size.width - rightInset;
+    final plotWidth = plotRight - leftMargin;
+
+    double yOf(double value) =>
+        plotTop + (1 - (value - min) / (max - min)) * plotHeight;
+    // At their time, so a step with no readings shows as a gap.
+    final t0 = history.first.timestamp.millisecondsSinceEpoch;
+    final tSpan = history.last.timestamp.millisecondsSinceEpoch - t0;
+    double xOf(int i) =>
+        leftMargin +
+        (history.length > 1 && tSpan > 0
+            ? plotWidth *
+                  (history[i].timestamp.millisecondsSinceEpoch - t0) /
+                  tSpan
+            : plotWidth / 2);
+
+    // Light horizontal gridlines with y labels.
+    final gridPaint = Paint()
+      ..color = gridColor
+      ..strokeWidth = 1;
+    for (var t = 0; t < _yTicks; t++) {
+      final value = min + (max - min) * t / (_yTicks - 1);
+      final y = yOf(value);
+      canvas.drawLine(Offset(leftMargin, y), Offset(plotRight, y), gridPaint);
+      final label = TextPainter(
+        text: TextSpan(text: axisValueFormat(value), style: labelStyle),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      label.paint(
+        canvas,
+        Offset(
+          leftMargin - AppSpacing.sm - label.width,
+          (y - label.height / 2).clamp(0.0, plotBottom - label.height),
+        ),
+      );
+    }
+
+    final points = [
+      for (var i = 0; i < history.length; i++)
+        Offset(xOf(i), yOf(history[i].value)),
+    ];
+
+    // Each step's lowest-to-highest spread, under the line.
+    final band = this.band;
+    if (band != null && band.length == history.length && history.length > 1) {
+      final spread = Path()..moveTo(xOf(0), yOf(band[0].max));
+      for (var i = 1; i < band.length; i++) {
+        spread.lineTo(xOf(i), yOf(band[i].max));
+      }
+      for (var i = band.length - 1; i >= 0; i--) {
+        spread.lineTo(xOf(i), yOf(band[i].min));
+      }
+      spread.close();
+      canvas.drawPath(spread, Paint()..color = color.withValues(alpha: 0.14));
+    }
+
+    // A smooth curve through the points (horizontal control handles, so it
+    // never overshoots the data).
+    final line = Path()..moveTo(points.first.dx, points.first.dy);
+    for (var i = 1; i < points.length; i++) {
+      final a = points[i - 1], b = points[i];
+      final mid = (a.dx + b.dx) / 2;
+      line.cubicTo(mid, a.dy, mid, b.dy, b.dx, b.dy);
+    }
+
+    final area = Path.from(line)
+      ..lineTo(points.last.dx, plotBottom)
+      ..lineTo(points.first.dx, plotBottom)
+      ..close();
+    canvas.drawPath(
+      area,
+      Paint()
+        ..shader =
+            LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                color.withValues(alpha: 0.18),
+                color.withValues(alpha: 0),
+              ],
+            ).createShader(
+              Rect.fromLTRB(leftMargin, plotTop, plotRight, plotBottom),
+            ),
+    );
+    canvas.drawPath(
+      line,
+      Paint()
+        ..color = color
+        ..strokeWidth = 2
+        ..style = PaintingStyle.stroke
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round,
+    );
+
+    // X-axis labels, thinned so they never crowd each other: a label is
+    // skipped when it would touch the one before it, or repeat its text.
+    final step = (points.length / _maxXLabels).ceil().clamp(1, points.length);
+    var lastRight = double.negativeInfinity;
+    String? lastText;
+    for (var i = 0; i < points.length; i += step) {
+      final text = timeFormat(history[i].timestamp);
+      if (text == lastText) continue;
+      final label = TextPainter(
+        text: TextSpan(text: text, style: labelStyle),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      final x = (points[i].dx - label.width / 2).clamp(
+        leftMargin,
+        size.width - label.width,
+      );
+      if (x < lastRight + 8) continue;
+      label.paint(canvas, Offset(x, plotBottom + 6));
+      lastRight = x + label.width;
+      lastText = text;
+    }
+
+    final index = selectedIndex;
+    if (index == null) return;
+
+    final p = points[index];
+    canvas.drawLine(
+      Offset(p.dx, plotTop),
+      Offset(p.dx, plotBottom),
+      Paint()
+        ..color = mutedColor.withValues(alpha: 0.4)
+        ..strokeWidth = 1,
+    );
+    canvas.drawCircle(p, 5, Paint()..color = surfaceColor);
+    canvas.drawCircle(p, 3.5, Paint()..color = color);
+
+    // Dark tooltip card: time over value (and the step's spread), kept
+    // inside the plot.
+    final time = TextPainter(
+      text: TextSpan(
+        text: tooltipTimeFormat(history[index].timestamp),
+        style: TextStyle(
+          fontSize: 10,
+          color: tooltipTextColor.withValues(alpha: 0.75),
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    final value = TextPainter(
+      text: TextSpan(
+        text: valueFormat(history[index].value),
+        style: TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+          color: tooltipTextColor,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    final b = band != null && band.length == history.length
+        ? band[index]
+        : null;
+    final spread = b == null || b.min == b.max
+        ? null
+        : (TextPainter(
+            text: TextSpan(
+              text: '${axisValueFormat(b.min)} – ${valueFormat(b.max)}',
+              style: TextStyle(
+                fontSize: 10,
+                color: tooltipTextColor.withValues(alpha: 0.75),
+              ),
+            ),
+            textDirection: TextDirection.ltr,
+          )..layout());
+    const padX = 10.0, padY = 6.0;
+    final widest = [
+      time.width,
+      value.width,
+      spread?.width ?? 0.0,
+    ].reduce((a, c) => a > c ? a : c);
+    final w = widest + padX * 2;
+    final h = time.height + value.height + (spread?.height ?? 0) + padY * 2;
+    final left = (p.dx - w / 2).clamp(0.0, size.width - w);
+    // Above the point when there's room, else below it.
+    final top = p.dy - h - 12 >= 0 ? p.dy - h - 12 : p.dy + 12;
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(left, top, w, h),
+        const Radius.circular(6),
+      ),
+      Paint()..color = tooltipColor,
+    );
+    time.paint(canvas, Offset(left + padX, top + padY));
+    value.paint(canvas, Offset(left + padX, top + padY + time.height));
+    spread?.paint(
+      canvas,
+      Offset(left + padX, top + padY + time.height + value.height),
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _TrendPainter oldDelegate) {
+    return oldDelegate.selectedIndex != selectedIndex ||
+        oldDelegate.history != history ||
+        oldDelegate.band != band ||
+        oldDelegate.min != min ||
+        oldDelegate.max != max ||
+        oldDelegate.color != color ||
+        oldDelegate.leftMargin != leftMargin;
+  }
+}
