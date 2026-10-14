@@ -28,6 +28,14 @@ class _StripLeadingTrunkZeroFormatter extends TextInputFormatter {
   }
 }
 
+/// Digits only, a leading trunk 0 dropped, at most 10: exactly what goes
+/// after "+63".
+final phoneInputFormatters = <TextInputFormatter>[
+  FilteringTextInputFormatter.digitsOnly,
+  const _StripLeadingTrunkZeroFormatter(),
+  LengthLimitingTextInputFormatter(10),
+];
+
 final _localDigitsRegExp = RegExp(r'^9\d{9}$');
 
 /// The E.164 number for the field's digits, e.g. "+639171234567".
@@ -66,11 +74,7 @@ class PhoneNumberField extends StatelessWidget {
       keyboardType: TextInputType.phone,
       textInputAction: textInputAction,
       autofillHints: const [AutofillHints.telephoneNumberNational],
-      inputFormatters: [
-        FilteringTextInputFormatter.digitsOnly,
-        const _StripLeadingTrunkZeroFormatter(),
-        LengthLimitingTextInputFormatter(10),
-      ],
+      inputFormatters: phoneInputFormatters,
       decoration: InputDecoration(
         labelText: 'Mobile number',
         hintText: '9171234567',

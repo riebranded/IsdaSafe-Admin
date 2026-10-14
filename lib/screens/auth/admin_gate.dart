@@ -36,12 +36,18 @@ class _AdminGateState extends State<AdminGate> {
   void initState() {
     super.initState();
     AdminAuthService.recoveryPending.addListener(_onRecoveryChanged);
+    AdminAuthService.adminRequestFiled.addListener(_onRequestFiled);
   }
 
   @override
   void dispose() {
     AdminAuthService.recoveryPending.removeListener(_onRecoveryChanged);
+    AdminAuthService.adminRequestFiled.removeListener(_onRequestFiled);
     super.dispose();
+  }
+
+  void _onRequestFiled() {
+    if (mounted) _recheck();
   }
 
   void _onRecoveryChanged() {

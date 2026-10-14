@@ -14,6 +14,19 @@ enum AdminStatus {
   notAdmin,
 }
 
+/// How an email signs in (see [AdminAuthService.emailSignInMethod]).
+enum EmailSignIn {
+  /// No login uses it: Register can sign it up.
+  none,
+
+  /// A login with a password (e.g. a farmer account).
+  password,
+
+  /// A login with no password, only Google: it can't be signed in to with a
+  /// password.
+  googleOnly,
+}
+
 class AdminProfile {
   const AdminProfile({
     required this.userId,
@@ -188,6 +201,7 @@ class AdminAuthService {
         'p_phone': phone,
       },
     );
+    adminRequestFiled.value++;
     return status == 'approved' ? AdminStatus.approved : AdminStatus.pending;
   }
 
@@ -269,6 +283,12 @@ class AdminAuthService {
   /// `send-semaphore-otp` Edge Function, which only stores the hashed code.
   static Future<void> sendPhoneOtp(String phone) async {
     await _client.rpc('admin_set_own_phone', params: {'p_phone': phone});
+    await _sendSemaphoreOtp(phone);
+  }
+
+  /// Texts a code to [phone] through the farmer app's `send-semaphore-otp`
+  /// (which stores its hash, and the number, for the caller).
+  static Future<void> _sendSemaphoreOtp(String phone) async {
     try {
       await _client.functions.invoke(
         'send-semaphore-otp',
@@ -293,6 +313,106 @@ class AdminAuthService {
       params: {'p_code': code},
     );
     if (error is String) throw AuthException(error);
+  }
+
+  /// Settings → Phone number, step 1: texts a code to a new [phone] (E.164).
+  /// Refused when another verified admin has it; a farmer account with the
+  /// same number is fine. The current number stays until [confirmPhoneChange].
+  static Future<void> sendPhoneChangeOtp(String phone) async {
+    try {
+      await _client.rpc(
+        'admin_check_phone_available',
+        params: {'p_phone': phone},
+      );
+    } on PostgrestException catch (e) {
+      throw AuthException(e.message);
+    }
+    await _sendSemaphoreOtp(phone);
+  }
+
+  /// Settings → Phone number, step 2: checks the code and makes the number
+  /// it was sent to the admin's (verified).
+  static Future<void> confirmPhoneChange(String code) async {
+    final error = await _client.rpc(
+      'admin_change_phone',
+      params: {'p_code': code},
+    );
+    if (error is String) throw AuthException(error);
+    await fetchOwnProfile();
+  }
+
+  /// "Verify it's you" before a password change: texts a code to the
+  /// admin's own verified number. Check it with [verifyPhoneOtp].
+  static Future<void> sendIdentityOtp() async {
+    final phone = ownProfile.value?.phone;
+    if (phone == null) {
+      throw const AuthException(
+        'Add a verified phone number first — we send the code there.',
+      );
+    }
+    await _sendSemaphoreOtp(phone);
+  }
+
+  /// Whether a login (admin or farmer: they share logins) already uses
+  /// [email]. Works signed out, for Register.
+  static Future<bool> isEmailTaken(String email) async {
+    final result = await _client.rpc(
+      'email_has_account',
+      params: {'p_email': email},
+    );
+    return result == true;
+  }
+
+  /// How [email] signs in, if it has a login at all: for Register, which
+  /// can't sign up an email that already has one (logins are shared with the
+  /// farmer app).
+  static Future<EmailSignIn> emailSignInMethod(String email) async {
+    final method = await _client.rpc(
+      'email_sign_in_method',
+      params: {'p_email': email},
+    );
+    return switch (method) {
+      'password' => EmailSignIn.password,
+      'oauth' => EmailSignIn.googleOnly,
+      _ => EmailSignIn.none,
+    };
+  }
+
+  /// Bumped whenever [requestAdminAccess] files a request, so AdminGate
+  /// re-checks the account even if it already looked (Register signs in to
+  /// an existing account first, then files the request).
+  static final ValueNotifier<int> adminRequestFiled = ValueNotifier(0);
+
+  /// Asks Supabase to change the login's email: it emails a confirmation
+  /// link, and the email changes once that's followed (then a trigger
+  /// updates the admin row). The link lands on web/email-confirmed.html on
+  /// the deployed panel ([siteUrl]). The login is shared with the farmer app.
+  static Future<void> requestEmailChange(String email) => _auth.updateUser(
+    UserAttributes(email: email),
+    emailRedirectTo: switch (siteUrl) {
+      final base? => '$base/email-confirmed.html',
+      null => null,
+    },
+  );
+
+  /// The deployed panel's address (`SITE_URL` in .env, e.g.
+  /// https://isdasafe-admin.vercel.app) without a trailing slash, for links
+  /// in emails: they're often opened on another device (a phone), where a
+  /// link back to a local build (http://localhost:…) leads nowhere. Falls
+  /// back to this page's own address on web. Must be in Supabase's Redirect
+  /// URLs allow-list.
+  static String? get siteUrl {
+    final configured = (dotenv.env['SITE_URL'] ?? '').trim();
+    final base = configured.isNotEmpty
+        ? configured
+        : (kIsWeb ? Uri.base.origin : null);
+    return base?.replaceFirst(RegExp(r'/+$'), '');
+  }
+
+  /// The new email waiting for its confirmation link, if any.
+  static String? get pendingEmail {
+    final pending = currentUser?.newEmail;
+    return (pending == null || pending.isEmpty) ? null : pending;
   }
 
   /// The signed-in admin's own row (null if it has none).

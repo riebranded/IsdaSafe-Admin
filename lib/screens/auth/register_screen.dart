@@ -36,6 +36,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
   var _obscurePassword = true;
   var _obscureConfirmPassword = true;
   var _agreedToTerms = false;
+
+  /// Why Register can't create this email (it already has an IsdaSafe
+  /// login): explains how to make that account an admin instead.
+  _AccountNotice? _notice;
   String? _captchaToken;
 
   static final _emailRegExp = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
@@ -44,7 +48,15 @@ class _RegisterScreenState extends State<RegisterScreen> {
   void initState() {
     super.initState();
     _passwordController.addListener(() {
-      setState(() => _password = _passwordController.text);
+      setState(() {
+        _password = _passwordController.text;
+        _notice = null;
+      });
+    });
+    _emailController.addListener(() {
+      if (_notice != null) {
+        setState(() => _notice = null);
+      }
     });
   }
 
@@ -65,17 +77,96 @@ class _RegisterScreenState extends State<RegisterScreen> {
     ).showSnackBar(SnackBar(content: Text(message)));
   }
 
+  /// The email already has an IsdaSafe login (e.g. a farmer account): sign
+  /// in to it and file the admin request with the name and number typed.
+  /// AdminGate (underneath) then asks to verify the number.
+  Future<void> _requestWithExistingAccount(
+    String email,
+    String captchaToken,
+  ) async {
+    try {
+      await AdminAuthService.signIn(
+        email: email,
+        password: _passwordController.text,
+        captchaToken: captchaToken,
+      );
+    } on AuthException catch (e) {
+      if (!mounted) return;
+      if (_looksLikeWrongPassword(e.message)) {
+        setState(() => _notice = _AccountNotice.wrongPassword);
+        return;
+      }
+      rethrow;
+    }
+    await AdminAuthService.requestAdminAccess(
+      firstName: _firstNameController.text.trim(),
+      lastName: _lastNameController.text.trim(),
+      phone: toE164Phone(_phoneController.text),
+    );
+    if (mounted) Navigator.of(context).popUntil((route) => route.isFirst);
+  }
+
+  /// Supabase's wording varies by version ("User already registered", "A
+  /// user with this email address has already been registered", ...).
+  static bool _looksLikeDuplicateEmail(String message) {
+    final lower = message.toLowerCase();
+    return lower.contains('already registered') ||
+        lower.contains('already exists') ||
+        lower.contains('already been registered');
+  }
+
+  static bool _looksLikeWrongPassword(String message) =>
+      message.toLowerCase().contains('invalid login credentials');
+
+  /// For a Google-only email: signs in with Google; AdminGate (underneath)
+  /// then asks for the name, number and a password, like any new Google
+  /// admin.
+  Future<void> _continueWithGoogle() async {
+    setState(() => _isSubmitting = true);
+    try {
+      final signedIn = await AdminAuthService.signInWithGoogle();
+      if (signedIn && mounted && AdminAuthService.currentSession != null) {
+        Navigator.of(context).popUntil((route) => route.isFirst);
+      }
+    } on AuthException catch (e) {
+      if (mounted) _showError(e.message);
+    } catch (e) {
+      debugPrint('RegisterScreen: Google sign-in error $e');
+      if (mounted) _showError('Google sign-in failed. Please try again.');
+    } finally {
+      if (mounted) setState(() => _isSubmitting = false);
+    }
+  }
+
   Future<void> _submit() async {
     if (!(_formKey.currentState?.validate() ?? false)) return;
     final captchaToken = _captchaToken;
     if (captchaToken == null || !_agreedToTerms) return;
 
-    setState(() => _isSubmitting = true);
+    final email = _emailController.text.trim();
+    setState(() {
+      _isSubmitting = true;
+      _notice = null;
+    });
     try {
+      // Admins and farmers share logins: an email already used in the
+      // IsdaSafe app can't sign up again, but that account can become an
+      // admin. Sign in to it with the password typed and file the request.
+      switch (await AdminAuthService.emailSignInMethod(email)) {
+        case EmailSignIn.password:
+          await _requestWithExistingAccount(email, captchaToken);
+          return;
+        case EmailSignIn.googleOnly:
+          // No password to sign in with: only Google gets into it.
+          setState(() => _notice = _AccountNotice.googleOnly);
+          return;
+        case EmailSignIn.none:
+          break;
+      }
       final response = await AdminAuthService.register(
         firstName: _firstNameController.text.trim(),
         lastName: _lastNameController.text.trim(),
-        email: _emailController.text.trim(),
+        email: email,
         password: _passwordController.text,
         phone: toE164Phone(_phoneController.text),
         captchaToken: captchaToken,
@@ -91,7 +182,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
         Navigator.of(context).pop();
       }
     } on AuthException catch (e) {
-      if (mounted) _showError(e.message);
+      if (!mounted) return;
+      if (_looksLikeDuplicateEmail(e.message)) {
+        setState(() => _notice = _AccountNotice.wrongPassword);
+      } else {
+        _showError(e.message);
+      }
     } catch (e) {
       if (mounted) _showError('Something went wrong. Please try again.');
       debugPrint('RegisterScreen: sign-up error $e');
@@ -212,6 +308,15 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     : null,
                 onFieldSubmitted: (_) => _submit(),
               ),
+              if (_notice case final notice?) ...[
+                const SizedBox(height: AppSpacing.md),
+                _ExistingAccountNotice(
+                  notice: notice,
+                  onContinueWithGoogle: _isSubmitting
+                      ? null
+                      : _continueWithGoogle,
+                ),
+              ],
               const SizedBox(height: AppSpacing.md),
               LegalConsentCheckbox(
                 value: _agreedToTerms,
@@ -260,6 +365,77 @@ class _RegisterScreenState extends State<RegisterScreen> {
           ),
         );
       },
+    );
+  }
+}
+
+enum _AccountNotice {
+  /// A password login, but not this password.
+  wrongPassword,
+
+  /// A Google-only login: it has no password at all.
+  googleOnly,
+}
+
+/// Shown when the email already has an IsdaSafe login (e.g. from the farmer
+/// app), so Register can't create it: how to make that account an admin.
+class _ExistingAccountNotice extends StatelessWidget {
+  const _ExistingAccountNotice({
+    required this.notice,
+    required this.onContinueWithGoogle,
+  });
+
+  final _AccountNotice notice;
+  final VoidCallback? onContinueWithGoogle;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final googleOnly = notice == _AccountNotice.googleOnly;
+    final canUseGoogle = AdminAuthService.isGoogleSignInSupported;
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: BoxDecoration(
+        color: scheme.secondaryContainer,
+        borderRadius: BorderRadius.circular(AppRadius.md),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(Icons.info_outline, color: scheme.onSecondaryContainer),
+              const SizedBox(width: AppSpacing.md),
+              Expanded(
+                child: Text(
+                  googleOnly
+                      ? 'This email already has an IsdaSafe account that signs '
+                            'in with Google, so it has no password yet. '
+                            'Continue with Google to make it an admin — you\'ll '
+                            'add your name, number and a password there.'
+                      : 'This email already has an IsdaSafe account (for '
+                            'example from the farmer app), and that isn\'t its '
+                            'password. Enter that account\'s current password '
+                            'to make it an admin.',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: scheme.onSecondaryContainer,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (googleOnly && canUseGoogle) ...[
+            const SizedBox(height: AppSpacing.md),
+            OutlinedButton.icon(
+              onPressed: onContinueWithGoogle,
+              icon: const Icon(Icons.g_mobiledata, size: 28),
+              label: const Text('Continue with Google'),
+            ),
+          ],
+        ],
+      ),
     );
   }
 }

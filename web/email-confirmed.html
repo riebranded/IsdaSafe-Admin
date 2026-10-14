@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Email confirmed · IsdaSafe Admin</title>
+  <link rel="icon" type="image/png" href="/favicon.png">
+  <!-- Supabase sends the admin here after they tap the email-change link (the
+       change itself is already done by then, server-side). Same page as the
+       farmer app's web/email-confirmed.html: a short confirmation, then on to
+       the panel. -->
+  <meta http-equiv="refresh" content="6;url=/">
+  <style>
+    :root { color-scheme: light dark; --bg:#f4f8fb; --card:#fff; --text:#0f2a3a; --muted:#5b7280; --accent:#0f7490; }
+    @media (prefers-color-scheme: dark) { :root { --bg:#0d1a22; --card:#14262f; --text:#e6f1f5; --muted:#93a9b4; --accent:#4fb3cf; } }
+    body { margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center;
+           background:var(--bg); color:var(--text); font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+    main { background:var(--card); border-radius:16px; padding:40px 32px; max-width:400px; margin:16px;
+           text-align:center; box-shadow:0 4px 24px rgba(0,0,0,.08); }
+    .check { width:64px; height:64px; border-radius:50%; background:var(--accent); color:#fff; font-size:34px;
+             line-height:64px; margin:0 auto 20px; }
+    h1 { font-size:22px; margin:0 0 8px; }
+    p { color:var(--muted); margin:0 0 16px; line-height:1.5; }
+    .note { font-size:14px; }
+    a { color:var(--accent); font-weight:600; }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="check" aria-hidden="true">&#10003;</div>
+    <h1 id="title">Email confirmed</h1>
+    <p id="message">Your email address has been updated. Taking you to the IsdaSafe admin panel&hellip;</p>
+    <p class="note">This email is also the one you log in to the IsdaSafe app with.</p>
+    <a href="/">Continue now</a>
+  </main>
+  <script>
+    // With "secure email change" on, Supabase sends a link to both the old
+    // and the new address; after the first one it adds a message saying the
+    // other is still needed (in the URL's fragment or query).
+    (function () {
+      var params = new URLSearchParams(
+        (location.hash || '').replace(/^#/, '') + '&' + location.search.replace(/^\?/, ''));
+      var message = params.get('message');
+      var error = params.get('error_description');
+      if (error) {
+        document.getElementById('title').textContent = 'Link didn’t work';
+        document.getElementById('message').textContent =
+          error.replace(/\+/g, ' ') + ' Request a new email change from Settings.';
+        return;
+      }
+      if (message) {
+        document.getElementById('title').textContent = 'Almost done';
+        document.getElementById('message').textContent = message.replace(/\+/g, ' ');
+        return;
+      }
+      setTimeout(function () { location.replace('/'); }, 4000);
+    })();
+  </script>
+</body>
+</html>

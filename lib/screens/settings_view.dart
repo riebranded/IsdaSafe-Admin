@@ -4,8 +4,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../services/admin_auth_service.dart';
 import '../theme/app_spacing.dart';
 import '../theme/theme_controller.dart';
+import '../widgets/account_dialogs.dart';
 import '../widgets/name_fields.dart';
-import '../widgets/password_strength_checklist.dart';
 import 'legal/legal_screen.dart';
 
 /// The admin's own account and panel preferences — the admin counterpart of
@@ -51,13 +51,13 @@ class _SettingsViewState extends State<SettingsView> {
     }
   }
 
-  Future<void> _changePassword() async {
-    final message = await showDialog<String>(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => const _ChangePasswordDialog(),
-    );
-    if (message != null && mounted) _showMessage(message);
+  /// Runs one of the Credentials dialogs, then shows its result and reloads
+  /// the profile (the number or email may have changed).
+  Future<void> _runAccountDialog(Future<String?> Function() open) async {
+    final message = await open();
+    if (message == null || !mounted) return;
+    _showMessage(message);
+    setState(() => _profileFuture = AdminAuthService.fetchOwnProfile());
   }
 
   Future<void> _confirmSignOut() async {
@@ -178,33 +178,61 @@ class _SettingsViewState extends State<SettingsView> {
                   ),
                 ),
                 const SizedBox(height: AppSpacing.lg),
-                _sectionTitle(theme, 'Sign-in'),
+                _sectionTitle(theme, 'Credentials'),
                 Card(
                   child: Column(
                     children: [
                       ListTile(
-                        leading: const Icon(Icons.email_outlined),
-                        title: const Text('Email'),
-                        subtitle: Text(email.isEmpty ? 'Not set' : email),
-                      ),
-                      const Divider(height: 1),
-                      if (AdminAuthService.hasPasswordLogin)
-                        ListTile(
-                          leading: const Icon(Icons.lock_outline),
-                          title: const Text('Password'),
-                          subtitle: const Text('Change your password'),
-                          trailing: const Icon(Icons.chevron_right),
-                          onTap: _changePassword,
-                        )
-                      else
-                        const ListTile(
-                          leading: Icon(Icons.lock_outline),
-                          title: Text('Password'),
-                          subtitle: Text(
-                            'You sign in with Google, so there\'s no '
-                            'password to change.',
+                        leading: const Icon(Icons.phone_outlined),
+                        title: const Text('Phone number'),
+                        subtitle: Text(
+                          profile?.phone == null
+                              ? 'Not set'
+                              : '${profile!.phone} · used for your '
+                                    'verification codes',
+                        ),
+                        trailing: const Icon(Icons.chevron_right),
+                        onTap: () => _runAccountDialog(
+                          () => showChangePhoneDialog(
+                            context,
+                            currentPhone: profile?.phone,
                           ),
                         ),
+                      ),
+                      const Divider(height: 1),
+                      ListTile(
+                        leading: const Icon(Icons.email_outlined),
+                        title: const Text('Email'),
+                        subtitle: Text(
+                          [
+                            email.isEmpty ? 'Not set' : email,
+                            if (AdminAuthService.pendingEmail case final p?)
+                              'Changing to $p — check that inbox for the link',
+                          ].join('\n'),
+                        ),
+                        isThreeLine: AdminAuthService.pendingEmail != null,
+                        trailing: const Icon(Icons.chevron_right),
+                        onTap: () => _runAccountDialog(
+                          () => showChangeEmailDialog(
+                            context,
+                            currentEmail: email,
+                          ),
+                        ),
+                      ),
+                      const Divider(height: 1),
+                      ListTile(
+                        leading: const Icon(Icons.lock_outline),
+                        title: const Text('Password'),
+                        subtitle: Text(
+                          AdminAuthService.hasPasswordLogin
+                              ? 'Change your password'
+                              : 'Set a password to also log in with your email',
+                        ),
+                        trailing: const Icon(Icons.chevron_right),
+                        onTap: () => _runAccountDialog(
+                          () => showChangePasswordDialog(context),
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -323,154 +351,6 @@ class _EditNameDialogState extends State<_EditNameDialog> {
           child: const Text('Cancel'),
         ),
         FilledButton(onPressed: _submit, child: const Text('Save')),
-      ],
-    );
-  }
-}
-
-class _ChangePasswordDialog extends StatefulWidget {
-  const _ChangePasswordDialog();
-
-  @override
-  State<_ChangePasswordDialog> createState() => _ChangePasswordDialogState();
-}
-
-class _ChangePasswordDialogState extends State<_ChangePasswordDialog> {
-  final _password = TextEditingController();
-  final _confirm = TextEditingController();
-  final _emailCode = TextEditingController();
-  var _obscure = true;
-  var _needsEmailCode = false;
-  var _busy = false;
-  String? _error;
-
-  @override
-  void dispose() {
-    _password.dispose();
-    _confirm.dispose();
-    _emailCode.dispose();
-    super.dispose();
-  }
-
-  Future<void> _submit() async {
-    if (!isStrongPassword(_password.text)) {
-      setState(() => _error = 'Password doesn\'t meet all the requirements');
-      return;
-    }
-    if (_password.text != _confirm.text) {
-      setState(() => _error = 'Passwords don\'t match');
-      return;
-    }
-    final nonce = _needsEmailCode ? _emailCode.text.trim() : null;
-    if (_needsEmailCode && (nonce?.isEmpty ?? true)) {
-      setState(() => _error = 'Enter the code we emailed you');
-      return;
-    }
-    setState(() {
-      _busy = true;
-      _error = null;
-    });
-    try {
-      await AdminAuthService.updatePassword(_password.text, nonce: nonce);
-      if (mounted) Navigator.of(context).pop('Password updated.');
-    } on AuthException catch (e) {
-      if (AdminAuthService.needsReauthentication(e) && !_needsEmailCode) {
-        try {
-          await AdminAuthService.sendReauthenticationCode();
-          if (mounted) setState(() => _needsEmailCode = true);
-        } on AuthException catch (e2) {
-          if (mounted) setState(() => _error = e2.message);
-        }
-      } else if (mounted) {
-        setState(() => _error = e.message);
-      }
-    } catch (e) {
-      debugPrint('ChangePasswordDialog: error $e');
-      if (mounted) {
-        setState(() => _error = 'Something went wrong. Please try again.');
-      }
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return AlertDialog(
-      title: const Text('Change password'),
-      content: SizedBox(
-        width: 360,
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (_needsEmailCode) ...[
-                Text(
-                  'For your security, we emailed you a code. Enter it to '
-                  'confirm the change.',
-                  style: theme.textTheme.bodySmall,
-                ),
-                const SizedBox(height: AppSpacing.md),
-                TextField(
-                  controller: _emailCode,
-                  autofocus: true,
-                  enabled: !_busy,
-                  decoration: const InputDecoration(labelText: 'Email code'),
-                ),
-                const SizedBox(height: AppSpacing.md),
-              ],
-              TextField(
-                controller: _password,
-                autofocus: !_needsEmailCode,
-                enabled: !_busy,
-                obscureText: _obscure,
-                autofillHints: const [AutofillHints.newPassword],
-                decoration: InputDecoration(
-                  labelText: 'New password',
-                  suffixIcon: IconButton(
-                    tooltip: _obscure ? 'Show password' : 'Hide password',
-                    icon: Icon(
-                      _obscure
-                          ? Icons.visibility_outlined
-                          : Icons.visibility_off_outlined,
-                    ),
-                    onPressed: () => setState(() => _obscure = !_obscure),
-                  ),
-                ),
-                onChanged: (_) => setState(() => _error = null),
-              ),
-              const SizedBox(height: AppSpacing.sm),
-              PasswordStrengthChecklist(password: _password.text),
-              const SizedBox(height: AppSpacing.md),
-              TextField(
-                controller: _confirm,
-                enabled: !_busy,
-                obscureText: _obscure,
-                decoration: const InputDecoration(
-                  labelText: 'Confirm new password',
-                ),
-                onChanged: (_) => setState(() => _error = null),
-                onSubmitted: (_) => _submit(),
-              ),
-              if (_error != null) ...[
-                const SizedBox(height: AppSpacing.sm),
-                Text(_error!, style: TextStyle(color: theme.colorScheme.error)),
-              ],
-            ],
-          ),
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: _busy ? null : () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
-        ),
-        FilledButton(
-          onPressed: _busy ? null : _submit,
-          child: const Text('Update'),
-        ),
       ],
     );
   }
