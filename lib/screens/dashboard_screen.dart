@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../services/admin_auth_service.dart';
 import '../theme/app_spacing.dart';
+import '../widgets/app_tour.dart';
 import 'admins_view.dart';
 import 'devices_view.dart';
 import 'monitoring_view.dart';
@@ -22,8 +23,10 @@ typedef _Destination = ({IconData icon, IconData selected, String label});
 
 class _DashboardScreenState extends State<DashboardScreen> {
   static const _monitoring = 0;
+  static const _map = 1;
   static const _devices = 2;
   static const _admins = 3;
+  static const _settings = 4;
 
   static const List<_Destination> _destinations = [
     (
@@ -54,10 +57,132 @@ class _DashboardScreenState extends State<DashboardScreen> {
   var _attentionCount = 0;
   var _pendingCount = 0;
 
+  /// What the guided tour spotlights. Each key sits on whichever variant
+  /// (sidebar or bottom bar / app bar) the current layout shows.
+  final _tourNavKeys = [
+    for (final d in _destinations) GlobalKey(debugLabel: 'tour-${d.label}'),
+  ];
+  final _tourNavBarKey = GlobalKey(debugLabel: 'tour-nav');
+  final _tourBrandKey = GlobalKey(debugLabel: 'tour-brand');
+  final _tourAccountKey = GlobalKey(debugLabel: 'tour-account');
+  final _tourTutorialKey = GlobalKey(debugLabel: 'tour-tutorial');
+
   @override
   void initState() {
     super.initState();
     _loadPendingCount();
+    // First sign-in on this device: walk the admin through the panel once.
+    // It can be replayed any time from Settings.
+    _autoStartTour();
+  }
+
+  Future<void> _autoStartTour() async {
+    if (!await AppTour.shouldAutoStart()) return;
+    // Give the dashboard a moment to settle into its final layout.
+    await Future<void>.delayed(const Duration(milliseconds: 800));
+    if (mounted) _startTour();
+  }
+
+  /// The guided tour of every destination and what can be done there.
+  void _startTour() {
+    if (AppTour.isShowing) return;
+    final isWide = MediaQuery.sizeOf(context).width >= kWideLayoutBreakpoint;
+    AppTour.start(context, [
+      TourStep(
+        target: _tourBrandKey,
+        icon: Icons.waving_hand_outlined,
+        title: 'Welcome to the Isda Safe admin panel',
+        body:
+            'From here you watch every pond and IsdaSafe device in the system, and manage who else can use this panel. This short tour shows where everything is.',
+        onEnter: () => _select(_monitoring),
+      ),
+      TourStep(
+        target: _tourNavBarKey,
+        icon: Icons.explore_outlined,
+        title: 'Getting around',
+        body: isWide
+            ? 'This sidebar takes you to every part of the panel. Collapse it with the menu button to make room, and tap the logo any time to come back to Monitoring.'
+            : 'The bar at the bottom takes you to every part of the panel.',
+      ),
+      TourStep(
+        target: _tourNavKeys[_monitoring],
+        icon: Icons.sensors_outlined,
+        title: 'Monitoring',
+        body:
+            'Every pond with a paired IsdaSafe device, its device connection and its latest water readings. It refreshes every minute.',
+        points: const [
+          'Search by pond, owner, email or device ID.',
+          'Filter to the ponds that need attention, or to online or offline devices.',
+          'Switch between cards and a list.',
+          'Open a pond for its full page: overall status, latest readings, owner and device, trends over any timeframe, and the readings behind them.',
+          'The badge counts the ponds that need attention.',
+        ],
+        onEnter: () => _select(_monitoring),
+      ),
+      TourStep(
+        target: _tourNavKeys[_map],
+        icon: Icons.map_outlined,
+        title: 'Map',
+        body:
+            'Every monitored pond pinned on one map, colored by its water status, with its owner in the marker\'s bubble. Tap a pond to open its full page.',
+        onEnter: () => _select(_map),
+      ),
+      TourStep(
+        target: _tourNavKeys[_devices],
+        icon: Icons.developer_board_outlined,
+        title: 'Devices',
+        body:
+            'Every device IsdaSafe knows about: paired or not, whoever owns it now or did before, even ones that haven\'t sent a reading yet.',
+        points: const [
+          'Choose a device to see where it is and how much it has measured.',
+          'Its map shows a numbered pin for every spot it has been, with the ponds it was in.',
+          'Pick a pond to see the device\'s visits there and their complete readings.',
+        ],
+        onEnter: () => _select(_devices),
+      ),
+      TourStep(
+        target: _tourNavKeys[_admins],
+        icon: Icons.admin_panel_settings_outlined,
+        title: 'Admins',
+        body: 'Who can use this panel.',
+        points: const [
+          'Approve or decline new admin registrations.',
+          'See every admin account, and remove someone\'s admin access.',
+          'The badge counts the requests waiting for an answer.',
+        ],
+        onEnter: () => _select(_admins),
+      ),
+      TourStep(
+        target: _tourNavKeys[_settings],
+        icon: Icons.settings_outlined,
+        title: 'Settings',
+        body: 'Your own account and panel preferences.',
+        points: const [
+          'Edit your name, phone number, email and password.',
+          'Pick a light or dark look.',
+          'Read the legal documents and open-source licenses, or contact the IsdaSafe team.',
+          'Sign out, or leave admin access.',
+        ],
+        onEnter: () => _select(_settings),
+      ),
+      TourStep(
+        target: _tourAccountKey,
+        icon: Icons.account_circle_outlined,
+        title: 'Your account',
+        body: isWide
+            ? 'The admin you\'re signed in as. Sign out from here.'
+            : 'Sign out from here.',
+        onEnter: () => _select(_settings),
+      ),
+      TourStep(
+        target: _tourTutorialKey,
+        icon: Icons.celebration_outlined,
+        title: 'You\'re all set!',
+        body:
+            'You can replay this tour any time from Settings → Help → Tutorial.',
+        onEnter: () => _select(_settings),
+      ),
+    ], onFinish: () => _select(_monitoring));
   }
 
   Future<void> _loadPendingCount() async {
@@ -132,16 +257,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
         const PondMapView(),
         DevicesView(active: _index == _devices),
         const AdminsView(),
-        const SettingsView(),
+        SettingsView(onStartTour: _startTour, tutorialKey: _tourTutorialKey),
       ],
     );
 
     if (!isWide) {
       return Scaffold(
         appBar: AppBar(
-          title: Text(_destinations[_index].label),
+          title: Text(_destinations[_index].label, key: _tourBrandKey),
           actions: [
             IconButton(
+              key: _tourAccountKey,
               tooltip: 'Sign out',
               icon: const Icon(Icons.logout),
               onPressed: _confirmSignOut,
@@ -150,17 +276,21 @@ class _DashboardScreenState extends State<DashboardScreen> {
         ),
         body: body,
         bottomNavigationBar: NavigationBar(
+          key: _tourNavBarKey,
           selectedIndex: _index,
           onDestinationSelected: _select,
           destinations: [
             for (final (i, d) in _destinations.indexed)
-              NavigationDestination(
-                icon: _BadgedIcon(icon: d.icon, count: _badgeFor(i)),
-                selectedIcon: _BadgedIcon(
-                  icon: d.selected,
-                  count: _badgeFor(i),
+              KeyedSubtree(
+                key: _tourNavKeys[i],
+                child: NavigationDestination(
+                  icon: _BadgedIcon(icon: d.icon, count: _badgeFor(i)),
+                  selectedIcon: _BadgedIcon(
+                    icon: d.selected,
+                    count: _badgeFor(i),
+                  ),
+                  label: d.label,
                 ),
-                label: d.label,
               ),
           ],
         ),
@@ -171,6 +301,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
       body: Row(
         children: [
           _Sidebar(
+            key: _tourNavBarKey,
+            navKeys: _tourNavKeys,
+            brandKey: _tourBrandKey,
+            accountKey: _tourAccountKey,
+            onHome: () => _select(_monitoring),
             collapsed: _collapsed,
             onToggleCollapsed: () => setState(() => _collapsed = !_collapsed),
             destinations: _destinations,
@@ -188,6 +323,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
 class _Sidebar extends StatelessWidget {
   const _Sidebar({
+    super.key,
+    required this.navKeys,
+    required this.brandKey,
+    required this.accountKey,
+    required this.onHome,
     required this.collapsed,
     required this.onToggleCollapsed,
     required this.destinations,
@@ -199,6 +339,14 @@ class _Sidebar extends StatelessWidget {
 
   static const _expandedWidth = 256.0;
   static const _collapsedWidth = 80.0;
+
+  /// Spotlighted by the guided tour.
+  final List<GlobalKey> navKeys;
+  final GlobalKey brandKey;
+  final GlobalKey accountKey;
+
+  /// Back to Monitoring, from the logo.
+  final VoidCallback onHome;
 
   final bool collapsed;
   final VoidCallback onToggleCollapsed;
@@ -236,8 +384,10 @@ class _Sidebar extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 _SidebarHeader(
+                  key: brandKey,
                   collapsed: collapsed,
                   onToggleCollapsed: onToggleCollapsed,
+                  onHome: onHome,
                 ),
                 const SizedBox(height: AppSpacing.xl),
                 if (!collapsed)
@@ -257,6 +407,7 @@ class _Sidebar extends StatelessWidget {
                   ),
                 for (final (i, d) in destinations.indexed) ...[
                   _SidebarButton(
+                    key: navKeys[i],
                     icon: d.icon,
                     selectedIcon: d.selected,
                     label: d.label,
@@ -268,7 +419,11 @@ class _Sidebar extends StatelessWidget {
                   const SizedBox(height: AppSpacing.xs),
                 ],
                 const Spacer(),
-                _AccountFooter(collapsed: collapsed, onSignOut: onSignOut),
+                _AccountFooter(
+                  key: accountKey,
+                  collapsed: collapsed,
+                  onSignOut: onSignOut,
+                ),
               ],
             ),
           ),
@@ -280,12 +435,17 @@ class _Sidebar extends StatelessWidget {
 
 class _SidebarHeader extends StatelessWidget {
   const _SidebarHeader({
+    super.key,
     required this.collapsed,
     required this.onToggleCollapsed,
+    required this.onHome,
   });
 
   final bool collapsed;
   final VoidCallback onToggleCollapsed;
+
+  /// Tapping the logo or name goes back to Monitoring.
+  final VoidCallback onHome;
 
   @override
   Widget build(BuildContext context) {
@@ -299,6 +459,16 @@ class _SidebarHeader extends StatelessWidget {
         semanticLabel: 'IsdaSafe logo',
       ),
     );
+    // Makes the logo (and, expanded, the name) a button back to Monitoring.
+    Widget home(Widget child) => Tooltip(
+      message: 'Go to Monitoring',
+      child: InkWell(
+        key: const ValueKey('brand-home'),
+        borderRadius: BorderRadius.circular(AppRadius.sm),
+        onTap: onHome,
+        child: child,
+      ),
+    );
     final toggle = IconButton(
       tooltip: collapsed ? 'Expand sidebar' : 'Collapse sidebar',
       onPressed: onToggleCollapsed,
@@ -309,7 +479,7 @@ class _SidebarHeader extends StatelessWidget {
       return Column(
         children: [
           const SizedBox(height: AppSpacing.xs),
-          logo,
+          home(logo),
           const SizedBox(height: AppSpacing.sm),
           toggle,
         ],
@@ -319,25 +489,33 @@ class _SidebarHeader extends StatelessWidget {
       padding: const EdgeInsets.only(left: AppSpacing.xs, top: AppSpacing.xs),
       child: Row(
         children: [
-          logo,
-          const SizedBox(width: AppSpacing.md),
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Isda Safe',
-                  style: theme.textTheme.titleMedium,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                Text(
-                  'Admin panel',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
+            child: home(
+              Row(
+                children: [
+                  logo,
+                  const SizedBox(width: AppSpacing.md),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Isda Safe',
+                          style: theme.textTheme.titleMedium,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        Text(
+                          'Admin panel',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
                   ),
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
+                ],
+              ),
             ),
           ),
           toggle,
@@ -352,6 +530,7 @@ class _SidebarHeader extends StatelessWidget {
 /// it's an icon with a tooltip.
 class _SidebarButton extends StatelessWidget {
   const _SidebarButton({
+    super.key,
     required this.icon,
     required this.selectedIcon,
     required this.label,
@@ -459,7 +638,11 @@ class _SidebarButton extends StatelessWidget {
 }
 
 class _AccountFooter extends StatelessWidget {
-  const _AccountFooter({required this.collapsed, required this.onSignOut});
+  const _AccountFooter({
+    super.key,
+    required this.collapsed,
+    required this.onSignOut,
+  });
 
   final bool collapsed;
   final VoidCallback onSignOut;

@@ -13,7 +13,13 @@ import 'legal/legal_screen.dart';
 /// the farmer app's Settings screen: profile, password, appearance, legal,
 /// sign out and leaving admin access.
 class SettingsView extends StatefulWidget {
-  const SettingsView({super.key});
+  const SettingsView({super.key, this.onStartTour, this.tutorialKey});
+
+  /// Replays the guided tour; the Help section is hidden when null.
+  final VoidCallback? onStartTour;
+
+  /// Marks the Help → Tutorial row for the tour's last step.
+  final GlobalKey? tutorialKey;
 
   @override
   State<SettingsView> createState() => _SettingsViewState();
@@ -112,188 +118,210 @@ class _SettingsViewState extends State<SettingsView> {
           alignment: Alignment.topCenter,
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 720),
-            child: ListView(
+            // Built all at once (not lazily like a ListView) so the guided
+            // tour can find and scroll to the Help row further down.
+            child: SingleChildScrollView(
               padding: const EdgeInsets.all(AppSpacing.lg),
-              children: [
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(AppSpacing.lg),
-                    child: Row(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(AppSpacing.lg),
+                      child: Row(
+                        children: [
+                          CircleAvatar(
+                            radius: 28,
+                            backgroundColor: theme.colorScheme.primary,
+                            backgroundImage: photoUrl != null
+                                ? NetworkImage(photoUrl)
+                                : null,
+                            child: photoUrl == null
+                                ? Text(
+                                    displayName.isNotEmpty
+                                        ? displayName[0].toUpperCase()
+                                        : '?',
+                                    style: TextStyle(
+                                      color: theme.colorScheme.onPrimary,
+                                      fontSize: 20,
+                                    ),
+                                  )
+                                : null,
+                          ),
+                          const SizedBox(width: AppSpacing.md),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  displayName,
+                                  style: theme.textTheme.titleMedium?.copyWith(
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                if (email.isNotEmpty && email != displayName)
+                                  Text(
+                                    email,
+                                    style: theme.textTheme.bodySmall?.copyWith(
+                                      color: theme.colorScheme.onSurfaceVariant,
+                                    ),
+                                  ),
+                                if (profile != null)
+                                  Text(
+                                    'Admin since ${MaterialLocalizations.of(context).formatMediumDate(profile.createdAt)}',
+                                    style: theme.textTheme.bodySmall?.copyWith(
+                                      color: theme.colorScheme.onSurfaceVariant,
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.edit_outlined),
+                            tooltip: 'Edit name',
+                            onPressed: profile == null
+                                ? null
+                                : () => _editName(profile),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.lg),
+                  _sectionTitle(theme, 'Credentials'),
+                  Card(
+                    child: Column(
                       children: [
-                        CircleAvatar(
-                          radius: 28,
-                          backgroundColor: theme.colorScheme.primary,
-                          backgroundImage: photoUrl != null
-                              ? NetworkImage(photoUrl)
-                              : null,
-                          child: photoUrl == null
-                              ? Text(
-                                  displayName.isNotEmpty
-                                      ? displayName[0].toUpperCase()
-                                      : '?',
-                                  style: TextStyle(
-                                    color: theme.colorScheme.onPrimary,
-                                    fontSize: 20,
-                                  ),
-                                )
-                              : null,
-                        ),
-                        const SizedBox(width: AppSpacing.md),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                displayName,
-                                style: theme.textTheme.titleMedium?.copyWith(
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                              if (email.isNotEmpty && email != displayName)
-                                Text(
-                                  email,
-                                  style: theme.textTheme.bodySmall?.copyWith(
-                                    color: theme.colorScheme.onSurfaceVariant,
-                                  ),
-                                ),
-                              if (profile != null)
-                                Text(
-                                  'Admin since ${MaterialLocalizations.of(context).formatMediumDate(profile.createdAt)}',
-                                  style: theme.textTheme.bodySmall?.copyWith(
-                                    color: theme.colorScheme.onSurfaceVariant,
-                                  ),
-                                ),
-                            ],
+                        ListTile(
+                          leading: const Icon(Icons.phone_outlined),
+                          title: const Text('Phone number'),
+                          subtitle: Text(
+                            profile?.phone == null
+                                ? 'Not set'
+                                : '${profile!.phone} · used for your '
+                                      'verification codes',
+                          ),
+                          trailing: const Icon(Icons.chevron_right),
+                          onTap: () => _runAccountDialog(
+                            () => showChangePhoneDialog(
+                              context,
+                              currentPhone: profile?.phone,
+                            ),
                           ),
                         ),
-                        IconButton(
-                          icon: const Icon(Icons.edit_outlined),
-                          tooltip: 'Edit name',
-                          onPressed: profile == null
-                              ? null
-                              : () => _editName(profile),
+                        const Divider(height: 1),
+                        ListTile(
+                          leading: const Icon(Icons.email_outlined),
+                          title: const Text('Email'),
+                          subtitle: Text(
+                            [
+                              email.isEmpty ? 'Not set' : email,
+                              if (AdminAuthService.pendingEmail case final p?)
+                                'Changing to $p — check that inbox for the link',
+                            ].join('\n'),
+                          ),
+                          isThreeLine: AdminAuthService.pendingEmail != null,
+                          trailing: const Icon(Icons.chevron_right),
+                          onTap: () => _runAccountDialog(
+                            () => showChangeEmailDialog(
+                              context,
+                              currentEmail: email,
+                            ),
+                          ),
+                        ),
+                        const Divider(height: 1),
+                        ListTile(
+                          leading: const Icon(Icons.lock_outline),
+                          title: const Text('Password'),
+                          subtitle: Text(
+                            AdminAuthService.hasPasswordLogin
+                                ? 'Change your password'
+                                : 'Set a password to also log in with your email',
+                          ),
+                          trailing: const Icon(Icons.chevron_right),
+                          onTap: () => _runAccountDialog(
+                            () => showChangePasswordDialog(context),
+                          ),
                         ),
                       ],
                     ),
                   ),
-                ),
-                const SizedBox(height: AppSpacing.lg),
-                _sectionTitle(theme, 'Credentials'),
-                Card(
-                  child: Column(
-                    children: [
-                      ListTile(
-                        leading: const Icon(Icons.phone_outlined),
-                        title: const Text('Phone number'),
-                        subtitle: Text(
-                          profile?.phone == null
-                              ? 'Not set'
-                              : '${profile!.phone} · used for your '
-                                    'verification codes',
-                        ),
-                        trailing: const Icon(Icons.chevron_right),
-                        onTap: () => _runAccountDialog(
-                          () => showChangePhoneDialog(
-                            context,
-                            currentPhone: profile?.phone,
-                          ),
-                        ),
-                      ),
-                      const Divider(height: 1),
-                      ListTile(
-                        leading: const Icon(Icons.email_outlined),
-                        title: const Text('Email'),
-                        subtitle: Text(
-                          [
-                            email.isEmpty ? 'Not set' : email,
-                            if (AdminAuthService.pendingEmail case final p?)
-                              'Changing to $p — check that inbox for the link',
-                          ].join('\n'),
-                        ),
-                        isThreeLine: AdminAuthService.pendingEmail != null,
-                        trailing: const Icon(Icons.chevron_right),
-                        onTap: () => _runAccountDialog(
-                          () => showChangeEmailDialog(
-                            context,
-                            currentEmail: email,
-                          ),
-                        ),
-                      ),
-                      const Divider(height: 1),
-                      ListTile(
-                        leading: const Icon(Icons.lock_outline),
-                        title: const Text('Password'),
-                        subtitle: Text(
-                          AdminAuthService.hasPasswordLogin
-                              ? 'Change your password'
-                              : 'Set a password to also log in with your email',
-                        ),
-                        trailing: const Icon(Icons.chevron_right),
-                        onTap: () => _runAccountDialog(
-                          () => showChangePasswordDialog(context),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.lg),
-                const _AppearanceCard(),
-                const SizedBox(height: AppSpacing.lg),
-                _sectionTitle(theme, 'Legal & about'),
-                Card(
-                  child: Column(
-                    children: [
-                      for (final document in LegalDocument.values) ...[
-                        ListTile(
-                          leading: Icon(document.icon),
-                          title: Text(document.title),
-                          trailing: const Icon(Icons.chevron_right),
-                          onTap: () => openLegalDocument(context, document),
-                        ),
-                        const Divider(height: 1),
-                      ],
-                      ListTile(
-                        leading: const Icon(Icons.code),
-                        title: const Text('Open-source licenses'),
+                  const SizedBox(height: AppSpacing.lg),
+                  const _AppearanceCard(),
+                  const SizedBox(height: AppSpacing.lg),
+                  if (widget.onStartTour case final startTour?) ...[
+                    _sectionTitle(theme, 'Help'),
+                    Card(
+                      key: widget.tutorialKey,
+                      child: ListTile(
+                        key: const ValueKey('settings-tutorial'),
+                        leading: const Icon(Icons.help_outline),
+                        title: const Text('Tutorial'),
                         subtitle: const Text(
-                          'Fonts, packages and other software used here',
+                          'See how the panel works and what each part does.',
                         ),
-                        trailing: const Icon(Icons.chevron_right),
-                        onTap: () => showLicensePage(
-                          context: context,
-                          applicationName: 'Isda Safe Admin',
-                          applicationIcon: Padding(
-                            padding: const EdgeInsets.all(AppSpacing.sm),
-                            child: Image.asset(
-                              'assets/branding/logo.png',
-                              width: 48,
-                              height: 48,
-                              semanticLabel: 'IsdaSafe logo',
+                        trailing: const Icon(Icons.play_circle_outline),
+                        onTap: startTour,
+                      ),
+                    ),
+                    const SizedBox(height: AppSpacing.lg),
+                  ],
+                  _sectionTitle(theme, 'Legal & about'),
+                  Card(
+                    child: Column(
+                      children: [
+                        for (final document in LegalDocument.values) ...[
+                          ListTile(
+                            leading: Icon(document.icon),
+                            title: Text(document.title),
+                            trailing: const Icon(Icons.chevron_right),
+                            onTap: () => openLegalDocument(context, document),
+                          ),
+                          const Divider(height: 1),
+                        ],
+                        ListTile(
+                          leading: const Icon(Icons.code),
+                          title: const Text('Open-source licenses'),
+                          subtitle: const Text(
+                            'Fonts, packages and other software used here',
+                          ),
+                          trailing: const Icon(Icons.chevron_right),
+                          onTap: () => showLicensePage(
+                            context: context,
+                            applicationName: 'Isda Safe Admin',
+                            applicationIcon: Padding(
+                              padding: const EdgeInsets.all(AppSpacing.sm),
+                              child: Image.asset(
+                                'assets/branding/logo.png',
+                                width: 48,
+                                height: 48,
+                                semanticLabel: 'IsdaSafe logo',
+                              ),
                             ),
                           ),
                         ),
-                      ),
-                      const Divider(height: 1),
-                      const ListTile(
-                        leading: Icon(Icons.support_agent_outlined),
-                        title: Text('Contact the IsdaSafe team'),
-                        subtitle: SelectableText(kLegalContactEmail),
-                      ),
-                    ],
+                        const Divider(height: 1),
+                        const ListTile(
+                          leading: Icon(Icons.support_agent_outlined),
+                          title: Text('Contact the IsdaSafe team'),
+                          subtitle: SelectableText(kLegalContactEmail),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-                const SizedBox(height: AppSpacing.lg),
-                Card(
-                  child: ListTile(
-                    leading: const Icon(Icons.logout),
-                    title: const Text('Sign out'),
-                    onTap: _confirmSignOut,
+                  const SizedBox(height: AppSpacing.lg),
+                  Card(
+                    child: ListTile(
+                      leading: const Icon(Icons.logout),
+                      title: const Text('Sign out'),
+                      onTap: _confirmSignOut,
+                    ),
                   ),
-                ),
-                const SizedBox(height: AppSpacing.lg),
-                const Card(child: _LeaveAdminTile()),
-              ],
+                  const SizedBox(height: AppSpacing.lg),
+                  const Card(child: _LeaveAdminTile()),
+                ],
+              ),
             ),
           ),
         );
