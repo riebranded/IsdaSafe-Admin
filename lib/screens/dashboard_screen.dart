@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../services/admin_auth_service.dart';
 import '../theme/app_spacing.dart';
 import 'admins_view.dart';
+import 'devices_view.dart';
 import 'monitoring_view.dart';
 import 'pond_map_view.dart';
 import 'settings_view.dart';
@@ -21,7 +22,8 @@ typedef _Destination = ({IconData icon, IconData selected, String label});
 
 class _DashboardScreenState extends State<DashboardScreen> {
   static const _monitoring = 0;
-  static const _admins = 2;
+  static const _devices = 2;
+  static const _admins = 3;
 
   static const List<_Destination> _destinations = [
     (
@@ -30,6 +32,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
       label: 'Monitoring',
     ),
     (icon: Icons.map_outlined, selected: Icons.map, label: 'Map'),
+    (
+      icon: Icons.developer_board_outlined,
+      selected: Icons.developer_board,
+      label: 'Devices',
+    ),
     (
       icon: Icons.admin_panel_settings_outlined,
       selected: Icons.admin_panel_settings,
@@ -118,6 +125,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           },
         ),
         const PondMapView(),
+        DevicesView(active: _index == _devices),
         const AdminsView(),
         const SettingsView(),
       ],

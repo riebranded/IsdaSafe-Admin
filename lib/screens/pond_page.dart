@@ -1,3 +1,4 @@
+import '../analytics/reading_days.dart';
 import 'package:flutter/material.dart';
 
 import '../analytics/individual_trend_chart.dart';
@@ -147,6 +148,7 @@ class _PondPageState extends State<PondPage> {
                   selection: _selection,
                   lastPreset: _lastPreset,
                   onChanged: _setSelection,
+                  readingDays: () => ReadingDays.load(widget.pond.pondId),
                 ),
                 const SizedBox(height: AppSpacing.lg),
                 ListenableBuilder(

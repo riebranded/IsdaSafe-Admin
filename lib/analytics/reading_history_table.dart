@@ -144,13 +144,17 @@ class _ReadingHistoryTableState extends State<ReadingHistoryTable> {
               DateTime? currentDay;
               for (final time in times) {
                 final day = DateUtils.dateOnly(time);
-                if (day != currentDay && pager.step.withinDay) {
+                if (!pager.withDates &&
+                    day != currentDay &&
+                    (pager.step?.withinDay ?? true)) {
                   currentDay = day;
                   rows.add(_DayHeader(label: _dayLabel(time)));
                 } else if (time != times.first) {
                   rows.add(const Divider(height: 1));
                 }
-                final label = pager.step.rowLabel(time);
+                final label = pager.withDates
+                    ? (pager.step?.fullLabel(time) ?? time.toString())
+                    : pager.step?.rowLabel(time) ?? clockLabel(time);
                 rows.add(
                   wide
                       ? _TableRow(

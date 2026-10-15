@@ -1,3 +1,4 @@
+import 'reading_days.dart';
 import 'package:flutter/material.dart';
 
 import '../models/monitored_pond.dart';
@@ -172,6 +173,7 @@ class _MetricDetailViewState extends State<MetricDetailView> {
             selection: _selection,
             lastPreset: _lastPreset,
             onChanged: _select,
+            readingDays: () => ReadingDays.load(widget.pond.pondId),
           ),
           if (series.length > 1) ...[
             const SizedBox(height: AppSpacing.md),
@@ -790,7 +792,9 @@ class _ReadingsSection extends StatelessWidget {
             color: theme.colorScheme.primary,
           ),
           title: Text('Show readings', style: theme.textTheme.titleSmall),
-          subtitle: Text('Averages ${pager.step.phrase}'),
+          subtitle: pager.step == null
+              ? null
+              : Text('Averages ${pager.step!.phrase}'),
           expandedAlignment: Alignment.topCenter,
           children: [child],
         ),

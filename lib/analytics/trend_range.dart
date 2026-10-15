@@ -174,10 +174,16 @@ extension TrendRangeInfo on TrendRange {
 class TrendSelection {
   const TrendSelection.preset(TrendRange this.range)
     : custom = null,
-      customStep = null;
+      customStep = null,
+      single = false,
+      anyStep = false;
 
-  const TrendSelection.dates(DateTimeRange this.custom, {this.customStep})
-    : range = null;
+  const TrendSelection.dates(
+    DateTimeRange this.custom, {
+    this.customStep,
+    this.single = false,
+    this.anyStep = false,
+  }) : range = null;
 
   /// The preset, or null for a custom range.
   final TrendRange? range;
@@ -187,6 +193,14 @@ class TrendSelection {
 
   /// The custom range's chosen step; null picks one to suit its length.
   final TrendStep? customStep;
+
+  /// A custom range listed as single readings, not grouped (the Devices tab's
+  /// "Whole visit"); [customStep] is then ignored.
+  final bool single;
+
+  /// Whether [customStep] is honoured whatever the range's length (for
+  /// paged lists of rows, unlike a chart that has to stay readable).
+  final bool anyStep;
 
   bool get isCustom => custom != null;
 
@@ -225,7 +239,7 @@ class TrendSelection {
     final span = window().duration;
     final chosen = customStep;
     // A step chosen for a different range may not suit this one.
-    return chosen != null && stepsFor(span).contains(chosen)
+    return chosen != null && (anyStep || stepsFor(span).contains(chosen))
         ? chosen
         : autoStep(span);
   }
@@ -254,7 +268,7 @@ class TrendSelection {
     final when = custom == null
         ? range!.span
         : '${_md(custom.start)} – ${_md(custom.end)}';
-    return '$when · ${step.phrase}';
+    return single ? '$when · every reading' : '$when · ${step.phrase}';
   }
 
   /// The custom range as a button label: "Oct 1 – Oct 11, 2026".
@@ -273,10 +287,12 @@ class TrendSelection {
       other is TrendSelection &&
       other.range == range &&
       other.custom == custom &&
-      other.customStep == customStep;
+      other.customStep == customStep &&
+      other.single == single &&
+      other.anyStep == anyStep;
 
   @override
-  int get hashCode => Object.hash(range, custom, customStep);
+  int get hashCode => Object.hash(range, custom, customStep, single, anyStep);
 }
 
 /// 498124 -> "498,124".
