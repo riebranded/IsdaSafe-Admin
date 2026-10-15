@@ -3,9 +3,11 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../services/admin_auth_service.dart';
 import '../theme/app_spacing.dart';
+import 'google_logo.dart';
 
 /// "or" divider + "Continue with Google", as on the farmer app's login.
 /// Renders nothing where Google sign-in isn't supported (desktop/iOS).
+/// [enabled] false greys the button out (e.g. until the CAPTCHA is passed).
 class GoogleSignInSection extends StatefulWidget {
   const GoogleSignInSection({super.key, this.enabled = true});
 
@@ -73,7 +75,7 @@ class _GoogleSignInSectionState extends State<GoogleSignInSection> {
                   height: 18,
                   child: CircularProgressIndicator(strokeWidth: 2),
                 )
-              : const Icon(Icons.g_mobiledata, size: 28),
+              : const GoogleLogo(),
           label: const Text('Continue with Google'),
         ),
       ],

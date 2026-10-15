@@ -6,6 +6,7 @@ import '../../theme/app_spacing.dart';
 import '../../widgets/auth_layout.dart';
 import '../../widgets/birth_date_field.dart';
 import '../../widgets/captcha_field.dart';
+import '../../widgets/google_logo.dart';
 import '../../widgets/google_sign_in_button.dart';
 import '../../widgets/name_fields.dart';
 import '../../widgets/password_strength_checklist.dart';
@@ -355,7 +356,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       )
                     : const Text('Register'),
               ),
-              GoogleSignInSection(enabled: !_isSubmitting),
+              GoogleSignInSection(
+                enabled: !_isSubmitting && _captchaToken != null,
+              ),
               const SizedBox(height: AppSpacing.sm),
               Wrap(
                 alignment: WrapAlignment.center,
@@ -439,7 +442,7 @@ class _ExistingAccountNotice extends StatelessWidget {
             const SizedBox(height: AppSpacing.md),
             OutlinedButton.icon(
               onPressed: onContinueWithGoogle,
-              icon: const Icon(Icons.g_mobiledata, size: 28),
+              icon: const GoogleLogo(),
               label: const Text('Continue with Google'),
             ),
           ],

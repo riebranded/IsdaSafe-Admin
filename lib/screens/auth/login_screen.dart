@@ -181,7 +181,9 @@ class _LoginScreenState extends State<LoginScreen> {
                       )
                     : const Text('Log in'),
               ),
-              GoogleSignInSection(enabled: !_isSubmitting),
+              GoogleSignInSection(
+                enabled: !_isSubmitting && _captchaToken != null,
+              ),
               const SizedBox(height: AppSpacing.sm),
               Wrap(
                 alignment: WrapAlignment.center,

@@ -5,6 +5,7 @@ import '../theme/app_spacing.dart';
 import '../theme/app_theme.dart';
 import '../widgets/birth_date_field.dart';
 import '../widgets/status_badge.dart';
+import '../widgets/typed_confirm_dialog.dart';
 
 /// Admin accounts and pending requests; approved admins approve or decline
 /// new registrations here.
@@ -46,6 +47,25 @@ class _AdminsViewState extends State<AdminsView> {
     } finally {
       if (mounted) setState(() => _busy.remove(admin.userId));
     }
+  }
+
+  /// Revoking an approved admin takes their access away at once, so it asks
+  /// for a typed confirmation first. Declining a pending request doesn't.
+  Future<void> _revokeOrDecline(AdminProfile admin) async {
+    if (admin.status == AdminStatus.approved) {
+      final confirmed = await showTypedConfirmDialog(
+        context,
+        icon: Icons.person_remove_outlined,
+        title: "Revoke ${admin.fullName}'s access?",
+        message:
+            '${admin.fullName} will be signed out of the admin panel and '
+            "can't use it again unless an admin approves them again.",
+        phrase: 'REVOKE ACCESS',
+        confirmLabel: 'Revoke access',
+      );
+      if (!confirmed || !mounted) return;
+    }
+    await _setStatus(admin, AdminStatus.rejected);
   }
 
   @override
@@ -128,8 +148,7 @@ class _AdminsViewState extends State<AdminsView> {
                             tooltip: admin.status == AdminStatus.approved
                                 ? 'Revoke access'
                                 : 'Decline',
-                            onPressed: () =>
-                                _setStatus(admin, AdminStatus.rejected),
+                            onPressed: () => _revokeOrDecline(admin),
                             icon: const Icon(Icons.close),
                           ),
                       ],

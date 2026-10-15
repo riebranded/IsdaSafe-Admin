@@ -55,6 +55,7 @@ dependencies:
 
   # The Map page (web: Maps JavaScript API loaded in web/index.html).
   google_maps_flutter: ^2.18.1
+  flutter_svg: ^2.3.0
 
 dev_dependencies:
   flutter_test:

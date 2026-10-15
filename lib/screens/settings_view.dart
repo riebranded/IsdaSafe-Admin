@@ -6,6 +6,7 @@ import '../theme/app_spacing.dart';
 import '../theme/theme_controller.dart';
 import '../widgets/account_dialogs.dart';
 import '../widgets/name_fields.dart';
+import '../widgets/typed_confirm_dialog.dart';
 import 'legal/legal_screen.dart';
 
 /// The admin's own account and panel preferences — the admin counterpart of
@@ -450,11 +451,18 @@ class _LeaveAdminTileState extends State<_LeaveAdminTile> {
 
   Future<void> _leave() async {
     final messenger = ScaffoldMessenger.of(context);
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (_) => const _LeaveAdminDialog(),
+    final confirmed = await showTypedConfirmDialog(
+      context,
+      icon: Icons.person_remove_outlined,
+      title: 'Leave admin access?',
+      message:
+          "Your admin record is deleted and you're signed out. Your login "
+          "stays, since it's shared with the IsdaSafe farmer app — delete it "
+          'there under Settings > Delete account if you want it gone too.',
+      phrase: 'LEAVE ADMIN ACCESS',
+      confirmLabel: 'Leave',
     );
-    if (confirmed != true || !mounted) return;
+    if (!confirmed || !mounted) return;
     setState(() => _leaving = true);
     try {
       await AdminAuthService.leaveAdminAccess();
@@ -498,42 +506,6 @@ class _LeaveAdminTileState extends State<_LeaveAdminTile> {
             )
           : null,
       onTap: _leaving ? null : _leave,
-    );
-  }
-}
-
-class _LeaveAdminDialog extends StatelessWidget {
-  const _LeaveAdminDialog();
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return AlertDialog(
-      icon: Icon(Icons.person_remove_outlined, color: scheme.error),
-      title: const Text('Leave admin access?', textAlign: TextAlign.center),
-      content: const SizedBox(
-        width: 360,
-        child: Text(
-          'Your admin record is deleted and you\'re signed out. Your login '
-          'stays, since it\'s shared with the IsdaSafe farmer app — delete it '
-          'there under Settings > Delete account if you want it gone too.',
-          textAlign: TextAlign.center,
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(false),
-          child: const Text('Cancel'),
-        ),
-        FilledButton(
-          style: FilledButton.styleFrom(
-            backgroundColor: scheme.error,
-            foregroundColor: scheme.onError,
-          ),
-          onPressed: () => Navigator.of(context).pop(true),
-          child: const Text('Leave'),
-        ),
-      ],
     );
   }
 }
