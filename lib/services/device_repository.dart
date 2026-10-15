@@ -200,6 +200,15 @@ class DeviceRepository {
     );
   }
 
+  /// When [stayId]'s newest complete reading was taken; null if it has none.
+  static Future<DateTime?> lastStayReading(int stayId) async {
+    final load =
+        debugStayReadings?.call(stayId, null, null) ??
+        _stayPage(stayId, null, null);
+    final rows = await load(0, 1);
+    return rows.isEmpty ? null : rows.first.time;
+  }
+
   static ReadingsPageLoader _stayPage(
     int stayId,
     DateTimeRange? window,

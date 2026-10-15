@@ -1279,6 +1279,31 @@ class _PlaceDetailState extends State<_PlaceDetail> {
 
   late ReadingsPager _pager = _pagerFor();
 
+  /// When each visit's newest complete reading was taken (null: none), once
+  /// loaded.
+  final _lastReadings = <int, DateTime?>{};
+
+  @override
+  void initState() {
+    super.initState();
+    _loadLastReading(_visit);
+  }
+
+  Future<void> _loadLastReading(DeviceStay stay) async {
+    if (_lastReadings.containsKey(stay.id)) return;
+    DateTime? last;
+    try {
+      last = await DeviceRepository.lastStayReading(stay.id);
+    } catch (e) {
+      debugPrint('Devices: last reading of visit ${stay.id} failed $e');
+      return;
+    }
+    if (!mounted) return;
+    _lastReadings[stay.id] = last;
+    // A timeframe in use for this visit now counts back from that reading.
+    if (stay.id == _visit.id && !_whole) _reload(() {});
+  }
+
   /// The visit's readings, or only those inside the timeframe.
   ///
   /// One averaged row per 15 minutes, hour, day, week, month or year,
@@ -1295,13 +1320,14 @@ class _PlaceDetailState extends State<_PlaceDetail> {
 
   /// The timeframe within the visit; null for the whole visit.
   ///
-  /// The presets count back from the visit's own end, not from today: a visit
-  /// that finished last week is otherwise outside every preset (or swallows
-  /// whole ones), so tapping a timeframe wouldn't change these readings.
+  /// The presets count back from the visit's newest reading (until that's
+  /// loaded, from the visit's end), not from today: a visit that finished last
+  /// week — or a device that stopped sending hours ago — is otherwise outside
+  /// the short presets, so "15 min" would show nothing.
   DateTimeRange? get _window {
     if (_whole) return null;
     final visitEnd = _visitEnd;
-    final w = _selection.window(visitEnd);
+    final w = _selection.window(_lastReadings[_visit.id] ?? visitEnd);
     final start = w.start.isAfter(_visit.startedAt)
         ? w.start
         : _visit.startedAt;
@@ -1322,7 +1348,27 @@ class _PlaceDetailState extends State<_PlaceDetail> {
 
   void _show(DeviceStay stay) {
     if (stay.id == _visit.id) return;
-    _reload(() => _visit = stay);
+    _loadLastReading(stay);
+    _reload(() {
+      _visit = stay;
+      // Custom dates belong to the visit they were picked in; the presets
+      // count back from whichever visit is shown, so they carry over.
+      if (_selection.isCustom) {
+        _whole = true;
+        _selection = TrendSelection.preset(_lastPreset);
+      }
+    });
+  }
+
+  /// The days of [days] within the shown visit: only those can be picked as
+  /// custom dates, so they never fall outside it.
+  Set<DateTime> _withinVisit(Set<DateTime> days) {
+    final first = DateUtils.dateOnly(_visit.startedAt);
+    final last = DateUtils.dateOnly(_visitEnd);
+    return {
+      for (final day in days)
+        if (!day.isBefore(first) && !day.isAfter(last)) day,
+    };
   }
 
   void _setSelection(TrendSelection selection) => _reload(() {
@@ -1517,13 +1563,15 @@ class _PlaceDetailState extends State<_PlaceDetail> {
                 allSelected: _whole,
                 onAll: () => _reload(() => _whole = true),
                 showGroupBy: true,
-                singleLabel: 'Whole visit',
+                singleLabel: 'Every reading',
                 readingDays: place.latest.pondId == null
                     ? null
-                    : () => ReadingDays.load(
-                        place.latest.pondId!,
-                        deviceId: widget.deviceId,
-                        completeOnly: true,
+                    : () async => _withinVisit(
+                        await ReadingDays.load(
+                          place.latest.pondId!,
+                          deviceId: widget.deviceId,
+                          completeOnly: true,
+                        ),
                       ),
                 description: _timeframeNote,
               ),

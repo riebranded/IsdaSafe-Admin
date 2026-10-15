@@ -255,8 +255,9 @@ void main() {
     final stays = _stays();
     final visit = stays.firstWhere((s) => s.id == 2);
     final visitEnd = visit.endedAt!;
-    // One reading in the visit's last hour, one three days before it ended.
-    final recent = visitEnd.subtract(const Duration(hours: 1));
+    // The device stopped sending three hours before the visit ended; one
+    // more reading three days before that.
+    final recent = visitEnd.subtract(const Duration(hours: 3));
     final older = visitEnd.subtract(const Duration(days: 3, minutes: 20));
     tester.view.physicalSize = const Size(1400, 1000);
     tester.view.devicePixelRatio = 1;
@@ -315,18 +316,27 @@ void main() {
     // No "Group by" choice while the whole visit is shown.
     expect(find.text('Group by'), findsNothing);
 
-    // Its last 24 hours — not today's — leave just the recent one.
+    // Its last 24 hours of readings — not today's, nor the hours after the
+    // device went quiet — leave just the recent one.
     await tester.tap(find.text('Hourly'));
     await tester.pumpAndSettle();
     expect(windows.last, isNotNull);
-    expect(windows.last!.end, visitEnd);
+    expect(windows.last!.end, recent);
     expect(
-      windows.last!.start.isAfter(visitEnd.subtract(const Duration(days: 1))),
+      windows.last!.start.isAfter(recent.subtract(const Duration(days: 1))),
       isTrue,
     );
     expect(find.text(clockLabel(recent)), findsOneWidget);
     expect(find.text(clockLabel(older)), findsNothing);
     expect(steps.last, TrendStep.hour);
+
+    // 15 min: the two hours up to its last reading still have that reading,
+    // though the visit's own last two hours are empty.
+    await tester.tap(find.text('15 min'));
+    await tester.pumpAndSettle();
+    expect(steps.last, TrendStep.fifteenMinutes);
+    expect(windows.last!.end, recent);
+    expect(find.textContaining('outside this visit'), findsNothing);
 
     // Daily asks for one row per day.
     await tester.tap(find.text('Daily'));
@@ -352,7 +362,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Show the readings as'), findsOneWidget);
     for (final text in [
-      'Whole visit',
+      'Every reading',
       'Every 15 minutes',
       'Hourly',
       'Daily',
@@ -371,13 +381,21 @@ void main() {
     await tester.tap(
       find.descendant(
         of: find.byType(SimpleDialog),
-        matching: find.text('Whole visit'),
+        matching: find.text('Every reading'),
       ),
     );
     await tester.pumpAndSettle();
     expect(steps.last, isNull);
-    // Whole visit chosen for custom dates: no "Group by" row either.
-    expect(find.text('Group by'), findsNothing);
+    // "Group by" stays, so the grouping can change without picking the
+    // dates again.
+    expect(find.text('Group by'), findsOneWidget);
+    await tester.tap(find.widgetWithText(ChoiceChip, TrendStep.hour.label));
+    await tester.pumpAndSettle();
+    expect(steps.last, TrendStep.hour);
+    await tester.tap(find.widgetWithText(ChoiceChip, 'Every reading'));
+    await tester.pumpAndSettle();
+    expect(steps.last, isNull);
+
     expect(tester.takeException(), isNull);
   });
 }
