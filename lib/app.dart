@@ -34,7 +34,7 @@ class IsdaSafeAdminApp extends StatelessWidget {
 
   Widget _buildApp(ThemeMode themeMode) {
     return MaterialApp(
-      title: 'IsdaSafe Admin',
+      title: 'Isda Safe Admin',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light,
       darkTheme: AppTheme.dark,

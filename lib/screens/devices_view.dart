@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
@@ -11,10 +10,11 @@ import '../models/monitored_pond.dart';
 import '../services/device_repository.dart';
 import '../theme/app_spacing.dart';
 import '../theme/app_theme.dart';
+import '../widgets/map_support.dart';
 import '../widgets/status_badge.dart';
 
-/// Only the web build loads the Maps JavaScript API (as on the Map tab).
-bool get _mapSupported => kIsWeb;
+/// The web build and Android show the map (as on the Map tab).
+bool get _mapSupported => isMapViewSupported;
 
 /// The Philippines, for when nothing has a location yet.
 const _defaultCenter = LatLng(12.8797, 121.7740);
@@ -1273,10 +1273,9 @@ class _PlaceDetailState extends State<_PlaceDetail> {
   var _selection = const TrendSelection.preset(TrendRange.hourly);
   var _lastPreset = TrendRange.hourly;
 
-  /// The whole visit, not a timeframe (the default), averaged by hour or day
-  /// ([_wholeStep]) with each row dated.
+  /// The whole visit, not a timeframe (the default): every reading the
+  /// device sent (about one a minute), each row dated.
   var _whole = true;
-  var _wholeStep = TrendStep.hour;
 
   late ReadingsPager _pager = _pagerFor();
 
@@ -1287,11 +1286,7 @@ class _PlaceDetailState extends State<_PlaceDetail> {
   ReadingsPager _pagerFor() => DeviceRepository.stayReadings(
     _visit.id,
     window: _window,
-    step: _whole
-        ? _wholeStep
-        : _selection.single
-        ? null
-        : _selection.step,
+    step: _whole || _selection.single ? null : _selection.step,
     withDates: _whole || _selection.single,
   );
 
@@ -1339,7 +1334,7 @@ class _PlaceDetailState extends State<_PlaceDetail> {
   /// "Whole visit", or the timeframe and how it meets the visit.
   String get _timeframeNote {
     if (_whole) {
-      return 'Whole visit · ${_rangeLabel(_visit)} · average ${_wholeStep.phrase}';
+      return 'Whole visit · ${_rangeLabel(_visit)} · every reading';
     }
     final window = _window!;
     final span = _selection.custom == null
@@ -1532,25 +1527,6 @@ class _PlaceDetailState extends State<_PlaceDetail> {
                       ),
                 description: _timeframeNote,
               ),
-              if (_whole) ...[
-                const SizedBox(height: AppSpacing.sm),
-                Wrap(
-                  spacing: AppSpacing.sm,
-                  runSpacing: AppSpacing.xs,
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  children: [
-                    Text('Group by', style: theme.textTheme.labelLarge),
-                    for (final step in const [TrendStep.hour, TrendStep.day])
-                      ChoiceChip(
-                        label: Text(step.label),
-                        selected: _wholeStep == step,
-                        showCheckmark: false,
-                        visualDensity: VisualDensity.compact,
-                        onSelected: (_) => _reload(() => _wholeStep = step),
-                      ),
-                  ],
-                ),
-              ],
               const SizedBox(height: AppSpacing.md),
               ReadingHistoryTable(key: ObjectKey(_pager), pager: _pager),
             ],

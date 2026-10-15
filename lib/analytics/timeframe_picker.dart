@@ -231,7 +231,7 @@ class TimeframePicker extends StatelessWidget {
             deleteButtonTooltipMessage: 'Clear custom timeframe',
             onDeleted: () => onChanged(TrendSelection.preset(lastPreset)),
           ),
-          if (showGroupBy) ...[
+          if (showGroupBy && !selection.single) ...[
             const SizedBox(height: AppSpacing.sm),
             _GroupBy(
               selection: selection,

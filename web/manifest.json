@@ -1,6 +1,6 @@
 {
-    "name": "IsdaSafe Admin",
-    "short_name": "IsdaSafe Admin",
+    "name": "Isda Safe Admin",
+    "short_name": "Isda Safe Admin",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0B2644",

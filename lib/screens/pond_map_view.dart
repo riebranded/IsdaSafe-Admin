@@ -1,12 +1,12 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../models/monitored_pond.dart';
 import '../services/monitoring_repository.dart';
 import '../theme/app_spacing.dart';
+import '../widgets/map_support.dart';
 import '../widgets/status_badge.dart';
 import 'pond_page.dart';
 
@@ -15,9 +15,8 @@ import 'pond_page.dart';
 const _defaultCenter = LatLng(12.8797, 121.7740);
 const _defaultZoom = 5.5;
 
-/// Only the web build loads the Maps JavaScript API (web/index.html); the
-/// admin app has no native Maps key, so other platforms get a list instead.
-bool get _mapSupported => kIsWeb;
+/// The web build and Android show the map; other platforms get a list.
+bool get _mapSupported => isMapViewSupported;
 
 /// Every pond with a paired device pinned on one map, colored by its water
 /// status, with the owner in the marker's bubble — the admin take on the

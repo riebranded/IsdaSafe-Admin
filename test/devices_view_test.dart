@@ -160,6 +160,23 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('on a phone the readings are the wide table, scrolled sideways', (
+    tester,
+  ) async {
+    await _pump(tester, const Size(390, 1600));
+    await tester.tap(find.text('Device 6C383B124B00'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Old Pond'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Time'), findsOneWidget);
+    final sideways = find.byWidgetPredicate(
+      (w) => w is SingleChildScrollView && w.scrollDirection == Axis.horizontal,
+    );
+    expect(sideways, findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('filters and searches', (tester) async {
     await _pump(tester, const Size(1400, 1000));
     await tester.tap(find.text('Not paired (1)'));
@@ -255,17 +272,18 @@ void main() {
     final windows = <DateTimeRange?>[];
     final steps = <TrendStep?>[];
     // Like the database: only the readings inside the asked-for window.
-    DeviceRepository.debugStayReadings = (stayId, window, step) => (offset, limit) {
-      windows.add(window);
-      steps.add(step);
-      if (offset > 0) return Future.value(const []);
-      return Future.value([
-        for (final time in [recent, older])
-          if (window == null ||
-              (!time.isBefore(window.start) && !time.isAfter(window.end)))
-            (time: time, values: {MetricType.temperature: 28.0}),
-      ]);
-    };
+    DeviceRepository.debugStayReadings = (stayId, window, step) =>
+        (offset, limit) {
+          windows.add(window);
+          steps.add(step);
+          if (offset > 0) return Future.value(const []);
+          return Future.value([
+            for (final time in [recent, older])
+              if (window == null ||
+                  (!time.isBefore(window.start) && !time.isAfter(window.end)))
+                (time: time, values: {MetricType.temperature: 28.0}),
+          ]);
+        };
 
     await tester.pumpWidget(
       MaterialApp(
@@ -283,23 +301,29 @@ void main() {
     await tester.tap(find.text('Old Pond'));
     await tester.pumpAndSettle();
 
-    // The whole visit shows both readings, each with its date.
-    expect(find.text(TrendStep.hour.fullLabel(recent)), findsOneWidget);
-    expect(find.text(TrendStep.hour.fullLabel(older)), findsOneWidget);
-    expect(steps.last, TrendStep.hour);
+    // The whole visit shows every reading (not averaged), each with its date.
+    expect(
+      find.text(TrendStep.fifteenMinutes.fullLabel(recent)),
+      findsOneWidget,
+    );
+    expect(
+      find.text(TrendStep.fifteenMinutes.fullLabel(older)),
+      findsOneWidget,
+    );
+    expect(steps.last, isNull);
 
-    // Grouped by day instead.
-    await tester.tap(find.widgetWithText(ChoiceChip, 'Day'));
-    await tester.pumpAndSettle();
-    expect(steps.last, TrendStep.day);
-    expect(find.text(TrendStep.day.fullLabel(recent)), findsOneWidget);
+    // No "Group by" choice while the whole visit is shown.
+    expect(find.text('Group by'), findsNothing);
 
     // Its last 24 hours — not today's — leave just the recent one.
     await tester.tap(find.text('Hourly'));
     await tester.pumpAndSettle();
     expect(windows.last, isNotNull);
     expect(windows.last!.end, visitEnd);
-    expect(windows.last!.start.isAfter(visitEnd.subtract(const Duration(days: 1))), isTrue);
+    expect(
+      windows.last!.start.isAfter(visitEnd.subtract(const Duration(days: 1))),
+      isTrue,
+    );
     expect(find.text(clockLabel(recent)), findsOneWidget);
     expect(find.text(clockLabel(older)), findsNothing);
     expect(steps.last, TrendStep.hour);
@@ -337,16 +361,23 @@ void main() {
       'Yearly',
     ]) {
       expect(
-        find.descendant(of: find.byType(SimpleDialog), matching: find.text(text)),
+        find.descendant(
+          of: find.byType(SimpleDialog),
+          matching: find.text(text),
+        ),
         findsOneWidget,
       );
     }
-    await tester.tap(find.descendant(
-      of: find.byType(SimpleDialog),
-      matching: find.text('Whole visit'),
-    ));
+    await tester.tap(
+      find.descendant(
+        of: find.byType(SimpleDialog),
+        matching: find.text('Whole visit'),
+      ),
+    );
     await tester.pumpAndSettle();
     expect(steps.last, isNull);
+    // Whole visit chosen for custom dates: no "Group by" row either.
+    expect(find.text('Group by'), findsNothing);
     expect(tester.takeException(), isNull);
   });
 }

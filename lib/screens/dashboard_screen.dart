@@ -113,7 +113,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final isWide = MediaQuery.sizeOf(context).width >= kWideLayoutBreakpoint;
+    final width = MediaQuery.sizeOf(context).width;
+    // Chrome briefly reports a viewport of about 1 px while the tab is hidden
+    // or the window is resized (e.g. during a hot restart). Laying the page
+    // out that narrow only throws layout errors, so wait for a real size.
+    if (width < 120) return const Scaffold(body: SizedBox.shrink());
+    final isWide = width >= kWideLayoutBreakpoint;
     final body = IndexedStack(
       index: _index,
       children: [
@@ -321,7 +326,7 @@ class _SidebarHeader extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'IsdaSafe',
+                  'Isda Safe',
                   style: theme.textTheme.titleMedium,
                   overflow: TextOverflow.ellipsis,
                 ),

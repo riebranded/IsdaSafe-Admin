@@ -261,7 +261,7 @@ class _SettingsViewState extends State<SettingsView> {
                         trailing: const Icon(Icons.chevron_right),
                         onTap: () => showLicensePage(
                           context: context,
-                          applicationName: 'IsdaSafe Admin',
+                          applicationName: 'Isda Safe Admin',
                           applicationIcon: Padding(
                             padding: const EdgeInsets.all(AppSpacing.sm),
                             child: Image.asset(
